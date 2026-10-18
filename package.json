@@ -1,9 +1,20 @@
 {
   "name": "owlbear-token-move",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
-  "scripts": {"dev": "vite --host 127.0.0.1", "build": "tsc --noEmit && vite build", "test": "tsx --test tests/*.test.ts", "preview": "vite preview --host 127.0.0.1"},
-  "dependencies": {"@owlbear-rodeo/sdk": "^3.1.0"},
-  "devDependencies": {"vite": "^7.0.0", "typescript": "^5.9.0", "tsx": "^4.20.0"}
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "test": "tsx --test tests/*.test.ts",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@owlbear-rodeo/sdk": "^3.1.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0",
+    "typescript": "^5.9.0",
+    "tsx": "^4.20.0"
+  }
 }

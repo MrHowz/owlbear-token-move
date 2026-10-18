@@ -33,7 +33,7 @@ export class Groups {
     const anchors = this.anchors(items);
     const busy = [...this.entries.values()].find(other => other.motor.running && other.config.anchors.some(a => anchors.some(b => a.id === b.id)));
     if (busy) throw new Error(`Token นี้กำลังเดินใน ${busy.config.name} กรุณาหยุดกลุ่มนั้นก่อน`);
-    e.config.anchors = anchors; e.config.b = undefined; e.motor = new Motion(this.adapter); e.message = "บันทึก A แล้ว • กำหนดจุด B ต่อได้เลย";
+    e.config.anchors = anchors; e.config.b = undefined; e.config.route = undefined; e.motor = new Motion(this.adapter); e.message = "บันทึก A แล้ว • เลือกช่อง B หรือสร้าง LINE";
   }
   update(id: string, name: string, settings: Settings) {
     const e = this.get(id); this.requireStopped(e);
@@ -47,7 +47,21 @@ export class Groups {
     if (!finitePoint(point)) throw new Error("พิกัด B ไม่ถูกต้อง");
     const a = e.config.anchors[0].position;
     if (Math.hypot(point.x-a.x, point.y-a.y) < .01) throw new Error("เลือกจุด B ให้ต่างจาก A");
-    e.config.b = {...point}; e.motor = new Motion(this.adapter); e.message = "พร้อมเดิน • ตั้งค่าแล้วกดเริ่มกลุ่มนี้";
+    e.config.b = {...point}; e.config.route = undefined; e.motor = new Motion(this.adapter); e.message = "พร้อมเดิน • ตั้งค่าแล้วกดเริ่มกลุ่มนี้";
+  }
+  setPath(id: string, points: Point[]) {
+    const e=this.get(id); this.requireStopped(e);
+    if(!e.config.anchors.length) throw new Error("บันทึก A ก่อนสร้าง LINE");
+    if(!Array.isArray(points)||!points.length||points.length>500||!points.every(finitePoint)) throw new Error("LINE ต้องมี 1–500 ช่อง");
+    let previous=e.config.anchors[0].position;
+    const route: Point[]=[];
+    for(const point of points) if(Math.hypot(point.x-previous.x,point.y-previous.y)>.01){route.push({...point});previous=point;}
+    if(!route.length) throw new Error("เลือกช่องเดินที่ต่างจาก A อย่างน้อย 1 ช่อง");
+    e.config.route=route; e.config.b={...route[route.length-1]}; e.motor=new Motion(this.adapter); e.message=`บันทึก LINE ${route.length} จุดแล้ว • พร้อมเดิน`;
+  }
+  clearDestination(id:string) {
+    const e=this.get(id);this.requireStopped(e);
+    e.config.b=undefined;e.config.route=undefined;e.motor=new Motion(this.adapter);e.message="A และ B อยู่ช่องเดียวกัน • เลือกช่อง B ใหม่";
   }
   async start(id: string, dpi: number, now: number) {
     const e = this.get(id);
@@ -57,7 +71,7 @@ export class Groups {
     const conflict = [...this.entries.values()].find(o => o !== e && o.motor.running && o.config.anchors.some(a => ids.has(a.id)));
     if (conflict) throw new Error(`Token ซ้ำกับกลุ่มที่กำลังเดิน: ${conflict.config.name}`);
     const s = e.config.settings;
-    await e.motor.start(e.config.anchors, e.config.b, dpi, s.speed, s.mode === "patrol", s.smooth, now, {flip:s.flip, facing:s.facing, resume:true});
+    await e.motor.start(e.config.anchors, e.config.b, dpi, s.speed, s.mode === "patrol", s.smooth, now, {flip:s.flip, facing:s.facing, resume:true,waypoints:e.config.route});
     e.message = s.mode === "patrol" ? "กำลังวนไปกลับ A ↔ B" : "กำลังเดินไป B";
   }
   async stop(id: string, commit = true) {const e=this.get(id); await e.motor.stop(commit); e.message="หยุดแล้ว • กดเริ่มเพื่อเดินต่อ";}
@@ -109,6 +123,6 @@ export class Groups {
     }
   }
   views(): GroupView[] {
-    return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),a:c.anchors[0]?.position,b:c.b,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));
+    return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),a:c.anchors[0]?.position,b:c.b,route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));
   }
 }

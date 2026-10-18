@@ -1,8 +1,8 @@
 {
   "name": "Token Move • A to B",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "manifest_version": 1,
-  "description": "Animate independent token groups with A/B routes, patrol loops and automatic facing flips. GM controls.",
+  "description": "Grid-centred destinations and cell-by-cell LINE routes for independent token groups, patrol loops and facing flips. GM controls.",
   "icon": "/icon.svg",
   "background_url": "/background.html",
   "action": {"title": "Token Move", "icon": "/icon.svg", "popover": "/index.html", "width": 460, "height": 800}

@@ -78,3 +78,35 @@ test("hundreds of groups can be added, transmitted in bounded packets, and reass
   for(const p of packets)assert.ok(new TextEncoder().encode(JSON.stringify(p)).length<16384);
   assert.equal(packets.map(p=>p.data).join(""),JSON.stringify(state));
 });
+
+test("LINE saves ordered cells, survives hydration and clears when direct B is chosen",()=>{
+  const f=fixture();const g=f.groups;g.create("a",f.items(["one"]));
+  const points=[{x:0,y:0},{x:100,y:0},{x:100,y:0},{x:100,y:100}];
+  g.setPath("a",points);points[3].x=999;
+  assert.deepEqual(g.views()[0].route,[{x:100,y:0},{x:100,y:100}]);assert.deepEqual(g.views()[0].b,{x:100,y:100});
+  const restored=new Groups(f.adapter);restored.hydrate(JSON.parse(JSON.stringify(g.export())));
+  assert.deepEqual(restored.views()[0].route,g.views()[0].route);assert.equal(restored.running,false);
+  restored.setB("a",{x:300,y:0});assert.equal(restored.views()[0].route,undefined);
+});
+
+test("invalid or running LINE edits leave the previous route intact",async()=>{
+  const f=fixture();const g=f.groups;g.create("a",f.items(["one"]));g.setPath("a",[{x:100,y:0}]);
+  assert.throws(()=>g.setPath("a",[]));assert.throws(()=>g.setPath("a",[{x:NaN,y:0}]));
+  assert.deepEqual(g.views()[0].route,[{x:100,y:0}]);await g.start("a",100,0);
+  assert.throws(()=>g.setPath("a",[{x:200,y:0}]),/หยุดกลุ่ม/);
+  assert.deepEqual(g.views()[0].route,[{x:100,y:0}]);
+});
+
+test("LINE configurations reject mismatched final B and keep v2 routes compatible",()=>{
+  const f=fixture();f.groups.create("a",f.items(["one"]));f.groups.setB("a",{x:100,y:0});
+  const old=f.groups.export()[0];assert.equal(validateConfig(old),true);
+  assert.equal(validateConfig({...old,route:[]}),false);
+  assert.equal(validateConfig({...old,route:[{x:200,y:0}]}),false);
+  assert.equal(validateConfig({...old,route:[{x:100,y:0}]}),true);
+});
+
+test("clearing a legacy same-cell destination keeps group members and A intact",()=>{
+  const f=fixture();const g=f.groups;g.create("a",f.items(["one","two"]));g.setB("a",{x:100,y:0});
+  const anchors=g.export()[0].anchors;g.clearDestination("a");
+  assert.deepEqual(g.export()[0].anchors,anchors);assert.equal(g.views()[0].b,undefined);assert.equal(g.views()[0].route,undefined);assert.equal(g.views()[0].count,2);
+});

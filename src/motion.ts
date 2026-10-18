@@ -13,8 +13,8 @@ export class Motion {
   private latest: Item[] = [];
   private from: Point[] = [];
   private target: Point[] = [];
-  private home: Point[] = [];
-  private away: Point[] = [];
+  private stops: Point[][] = [];
+  private targetIndex = 1;
   private started = 0;
   private renewed = 0;
   private duration = 0;
@@ -28,28 +28,34 @@ export class Motion {
   private scales: Point[] = [];
   private routeStarted = false;
   get direction(): "outbound" | "return" {return this.goingHome ? "return" : "outbound";}
+  get waypointIndex() {return this.targetIndex;}
   running = false;
   progress = 0;
   constructor(private adapter: MotionAdapter) {}
 
-  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options = {flip: false, facing: "right" as Facing, resume: false}) {
+  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[]} = {flip:false,facing:"right",resume:false}) {
     if (!originals.length) throw new Error("กรุณาบันทึกจุด A ก่อน");
     await this.stop();
     const fresh = await this.adapter.read(originals.map(i => i.id));
     if (fresh.length !== originals.length || fresh.some(i => i.locked || i.attachedTo)) throw new Error("วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น กรุณาเลือกจุด A ใหม่");
     this.latest = originals.map(o => fresh.find(i => i.id === o.id)!);
-    this.home = originals.map(i => ({...i.position}));
-    const delta = {x: b.x - originals[0].position.x, y: b.y - originals[0].position.y};
-    this.away = originals.map(i => ({x: i.position.x + delta.x, y: i.position.y + delta.y}));
+    const points=options.waypoints?.length?options.waypoints:[b];
+    this.stops=[originals.map(i=>({...i.position})),...points.map(point=>originals.map(i=>({x:i.position.x+point.x-originals[0].position.x,y:i.position.y+point.y-originals[0].position.y})))];
     this.dpi = dpi; this.speed = speed; this.patrol = patrol; this.smooth = smooth;
-    if (!patrol || !options.resume || !this.routeStarted) this.goingHome = false;
+    if (!options.resume || !this.routeStarted) {this.goingHome=false;this.targetIndex=1;}
+    if (!patrol && this.goingHome) {
+      // A one-way route continues from the paused cell toward the next outward stop.
+      this.goingHome=false;this.targetIndex=Math.min(this.stops.length-1,this.targetIndex+1);
+    }
+    this.targetIndex=Math.max(0,Math.min(this.stops.length-1,this.targetIndex));
     this.flip = options.flip; this.facing = options.facing;
     this.scales = this.latest.map((item,i) => ({x: Math.abs(item.scale.x) * (Math.sign(originals[i].scale.x) || 1), y: item.scale.y}));
     // Validate before opening an interaction.
-    durationMs(this.latest[0].position, this.away[0], dpi, speed);
+    durationMs(this.latest[0].position, this.stops[this.targetIndex][0], dpi, speed);
     this.beginLeg(now);
     this.interaction = await this.adapter.interact(this.latest);
-    this.renewed = now; this.running = true; this.progress = 0; this.routeStarted = true;
+    this.renewed = now; this.running = true; this.routeStarted = true;
+    this.setProgress(0);
     this.apply(0);
   }
   private apply(t: number) {
@@ -66,9 +72,13 @@ export class Motion {
   }
   private beginLeg(now: number) {
     this.from = this.latest.map(i => ({...i.position}));
-    this.target = this.goingHome ? this.home : this.away;
+    this.target = this.stops[this.targetIndex];
     this.duration = Math.max(...this.from.map((p, i) => durationMs(p, this.target[i], this.dpi, this.speed)));
     this.started = now;
+  }
+  private setProgress(t:number) {
+    const legs=this.stops.length-1;
+    this.progress=((this.goingHome?legs-1-this.targetIndex:this.targetIndex-1)+t)/legs;
   }
   async tick(now: number) {
     if (!this.running || !this.interaction) return;
@@ -82,12 +92,26 @@ export class Motion {
       const ordered = this.latest.map(item => ({...fresh.find(i => i.id === item.id)!, position: {...item.position}, scale: {...item.scale}}));
       this.interaction = await this.adapter.interact(ordered); this.renewed = now;
     }
-    this.progress = Math.min(1, Math.max(0, (now - this.started) / this.duration));
-    this.apply(this.progress);
-    if (this.progress >= 1) {
-      if (!this.patrol) await this.stop();
-      else {this.goingHome = !this.goingHome; this.beginLeg(now); this.progress = 0; this.apply(0);}
+    // Consume overshoot so short cells and corners do not reduce the chosen speed.
+    for(let crossed=0;crossed<1000;crossed++) {
+      const t=Math.min(1,Math.max(0,(now-this.started)/this.duration));
+      this.setProgress(t);this.apply(t);
+      if(t<1)return;
+      const arrived=this.started+this.duration;
+      if(!this.goingHome&&this.targetIndex===this.stops.length-1) {
+        if(!this.patrol){await this.stop();return;}
+        this.goingHome=true;
+      } else if(this.goingHome&&this.targetIndex===0) this.goingHome=false;
+      this.targetIndex+=this.goingHome?-1:1;
+      this.beginLeg(arrived);this.setProgress(0);this.apply(0);
+      // Skip complete cycles after a long browser suspension without shortcutting corners.
+      if(this.patrol&&(this.targetIndex===1&&!this.goingHome)) {
+        const cycle=2*this.stops.slice(1).reduce((sum,stop,i)=>sum+Math.max(...stop.map((p,j)=>durationMs(this.stops[i][j],p,this.dpi,this.speed))),0);
+        if(now-this.started>=cycle)this.started+=Math.floor((now-this.started)/cycle)*cycle;
+      }
     }
+    // A very long route after suspension resumes at the current cell on the next frame.
+    this.started=now;
   }
   async stop(commit = true) {
     const wasRunning = this.running;

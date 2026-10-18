@@ -100,3 +100,42 @@ test("non-image items move but are not flipped",async()=>{
   const f=fixture(2,"SHAPE");await f.motor.start(f.initial,{x:-100,y:0},100,1,true,false,0,{flip:true,facing:"right",resume:true});
   await f.motor.tick(500);assert.equal(f.live()[0].position.x,-50);assert.equal(f.live()[0].scale.x,2);
 });
+
+test("LINE follows every corner at the configured speed and preserves group offsets",async()=>{
+  const f=fixture();const waypoints=[{x:100,y:0},{x:100,y:100},{x:200,y:100}];
+  await f.motor.start(f.initial,waypoints[2],100,1,false,false,0,{flip:true,facing:"right",resume:true,waypoints});
+  await f.motor.tick(1500);assert.deepEqual(f.live()[0].position,{x:100,y:50});
+  assert.deepEqual(f.live()[1].position,{x:150,y:150});assert.equal(f.motor.waypointIndex,2);
+  await f.motor.tick(3000);assert.deepEqual(f.items()[0].position,{x:200,y:100});assert.equal(f.motor.running,false);assert.equal(f.motor.progress,1);
+});
+
+test("LINE patrol retraces the same cells instead of returning diagonally",async()=>{
+  const f=fixture();const waypoints=[{x:100,y:0},{x:100,y:100}];
+  await f.motor.start(f.initial,waypoints[1],100,1,true,false,0,{flip:true,facing:"right",resume:true,waypoints});
+  await f.motor.tick(2000);assert.equal(f.motor.direction,"return");
+  await f.motor.tick(2500);assert.deepEqual(f.live()[0].position,{x:100,y:50});
+  await f.motor.tick(3500);assert.deepEqual(f.live()[0].position,{x:50,y:0});assert.equal(f.live()[0].scale.x,-2);
+  await f.motor.tick(4000);assert.equal(f.motor.direction,"outbound");assert.deepEqual(f.live()[0].position,{x:0,y:0});assert.equal(f.live()[0].scale.x,2);
+});
+
+test("a stopped LINE resumes the current return segment and keeps later corners",async()=>{
+  const f=fixture();const waypoints=[{x:100,y:0},{x:100,y:100},{x:200,y:100}];
+  const options={flip:true,facing:"right" as const,resume:true,waypoints};
+  await f.motor.start(f.initial,waypoints[2],100,1,true,false,0,options);
+  await f.motor.tick(3500);await f.motor.stop();assert.deepEqual(f.items()[0].position,{x:150,y:100});
+  await f.motor.start(f.initial,waypoints[2],100,1,true,false,4000,options);
+  await f.motor.tick(5000);assert.deepEqual(f.live()[0].position,{x:100,y:50});assert.equal(f.motor.direction,"return");
+});
+
+test("LINE flips at horizontal direction changes even before the final B",async()=>{
+  const f=fixture();const waypoints=[{x:100,y:0},{x:0,y:0},{x:100,y:0}];
+  await f.motor.start(f.initial,waypoints[2],100,1,false,false,0,{flip:true,facing:"right",resume:true,waypoints});
+  await f.motor.tick(1000);assert.equal(f.live()[0].scale.x,-2);
+  await f.motor.tick(2000);assert.equal(f.live()[0].scale.x,2);
+});
+
+test("long suspension skips whole LINE cycles and resumes at the correct cell",async()=>{
+  const f=fixture();const waypoints=[{x:100,y:0},{x:100,y:100}];
+  await f.motor.start(f.initial,waypoints[1],100,1,true,false,0,{flip:true,facing:"right",resume:true,waypoints});
+  await f.motor.tick(4_000_050);assert.deepEqual(f.live()[0].position,{x:5,y:0});assert.equal(f.motor.direction,"outbound");
+});
