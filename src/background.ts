@@ -59,6 +59,7 @@ async function handle(command: Command) {
     const active = await OBR.tool.getActiveTool();
     if (active !== ID) previousTool = active;
     state.picking = true; state.message = "คลิกจุด B บนแผนที่ • กด Esc เพื่อยกเลิก";
+    await OBR.tool.activateTool(ID);
     await OBR.tool.activateMode(ID, `${ID}/destination`);
     await publish();
     await OBR.action.close();
