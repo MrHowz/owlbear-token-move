@@ -1,0 +1,9 @@
+{
+  "name": "Token Move • A to B",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "description": "Move selected items from A to B with adjustable speed, smooth motion and patrol mode. GM controls.",
+  "icon": "./icon.svg",
+  "background_url": "./background.html",
+  "action": {"title": "Token Move", "icon": "./icon.svg", "popover": "./index.html", "width": 390, "height": 680}
+}
