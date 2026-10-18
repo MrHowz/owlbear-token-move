@@ -1,9 +1,9 @@
 {
   "name": "Token Move • LINE",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "manifest_version": 1,
   "description": "Draw LINE routes from any starting cell, with token groups, patrol loops and facing flips. GM controls.",
   "icon": "/icon.svg",
   "background_url": "/background.html",
-  "action": {"title": "Token Move", "icon": "/icon.svg", "popover": "/index.html", "width": 460, "height": 780}
+  "action": {"title": "Token Move", "icon": "/icon.svg", "popover": "/index.html", "width": 480, "height": 620}
 }

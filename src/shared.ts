@@ -3,7 +3,7 @@ export const COMMAND = `${ID}/command`;
 export const STATE = `${ID}/state`;
 export type Point = {x: number; y: number};
 export type Mode = "once" | "patrol";
-export const VERSION = "2.2.0";
+export const VERSION = "2.3.0";
 export type Facing = "right" | "left";
 export interface Settings {speed: number; mode: Mode; smooth: boolean; flip: boolean; facing: Facing}
 export interface Anchor {id: string; name: string; type: string; position: Point; scale: Point}
