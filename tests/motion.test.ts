@@ -193,3 +193,11 @@ test("the movement clock begins when initial interaction is ready, not before th
   await motor.tick(1000);assert.equal(f.live()[0].position.x,0);
   await motor.tick(1016);assert.equal(f.live()[0].position.x,1.6);
 });
+
+test("cancelling while the first interaction opens cannot revive the stopped run",{timeout:2000},async()=>{
+  const f=fixture(),blocked=gate(),opening=gate(),interact=f.adapter.interact;
+  f.adapter.interact=async items=>{opening.release();await blocked.promise;return interact(items);};
+  const starting=f.motor.start(f.initial,{x:100,y:0},100,1,true,false,0);
+  await opening.promise;await f.motor.stop(false);blocked.release();
+  await assert.rejects(starting,/ยกเลิก/);assert.equal(f.motor.running,false);assert.equal(f.counts().stops,1);
+});

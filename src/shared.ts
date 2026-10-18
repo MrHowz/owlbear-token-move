@@ -3,17 +3,17 @@ export const COMMAND = `${ID}/command`;
 export const STATE = `${ID}/state`;
 export type Point = {x: number; y: number};
 export type Mode = "once" | "patrol";
-export const VERSION = "2.1.1";
+export const VERSION = "2.2.0";
 export type Facing = "right" | "left";
 export interface Settings {speed: number; mode: Mode; smooth: boolean; flip: boolean; facing: Facing}
 export interface Anchor {id: string; name: string; type: string; position: Point; scale: Point}
-export interface GroupConfig {id: string; name: string; anchors: Anchor[]; b?: Point; route?: Point[]; settings: Settings}
-export interface GroupView {id: string; name: string; count: number; names: string[]; a?: Point; b?: Point; route?: Point[]; waypointIndex?: number; settings: Settings; running: boolean; progress: number; direction: "outbound" | "return"; message: string}
-export interface State {version: string; ready: boolean; gm: boolean; groups: GroupView[]; selectedId?: string; pickingId?: string; pickMode?: "destination" | "line"; draft?: Point[]; routeVisible?: boolean; message: string; lastRequest?: string}
+export interface GroupConfig {id: string; name: string; anchors: Anchor[]; route?: Point[]; settings: Settings}
+export interface GroupView {id: string; name: string; count: number; names: string[]; route?: Point[]; waypointIndex?: number; settings: Settings; running: boolean; progress: number; direction: "outbound" | "return"; message: string}
+export interface State {version: string; ready: boolean; gm: boolean; groups: GroupView[]; selectedId?: string; pickingId?: string; pickMode?: "start" | "line"; draft?: Point[]; routeVisible?: boolean; message: string; lastRequest?: string; error?: string}
 export type Command =
   | {type: "status" | "stopAll" | "startAll"}
-  | {type: "create"; capture: boolean}
-  | {type: "select" | "capture" | "pick" | "pickLine" | "finishLine" | "undoLine" | "cancelPick" | "showRoute" | "destinationFromSelection" | "stop" | "reset" | "remove" | "start"; id: string}
+  | {type: "create"}
+  | {type: "select" | "capture" | "pickStart" | "pickLine" | "finishLine" | "undoLine" | "cancelPick" | "showRoute" | "stop" | "reset" | "remove" | "start"; id: string}
   | {type: "update"; id: string; name: string; settings: Settings};
 export interface CommandMessage {request: string; command: Command}
 export const defaultSettings: Settings = {speed: 2, mode: "patrol", smooth: false, flip: true, facing: "right"};
@@ -32,7 +32,7 @@ export function validSettings(s: Settings): boolean {
 }
 export function validateConfig(value: unknown): value is GroupConfig {
   const g = value as GroupConfig | null;
-  return !!g && typeof g.id === "string" && g.id.length > 0 && typeof g.name === "string" && g.name.length <= 80 && validSettings(g.settings) && (!g.b || finitePoint(g.b)) && (g.route === undefined || (Array.isArray(g.route) && g.route.length > 0 && g.route.length <= 500 && g.route.every(finitePoint) && !!g.b && Math.hypot(g.route[g.route.length-1].x-g.b.x,g.route[g.route.length-1].y-g.b.y)<.01)) && Array.isArray(g.anchors) && new Set(g.anchors.map(a => a?.id)).size === g.anchors.length && g.anchors.every(a => a && typeof a.id === "string" && typeof a.name === "string" && typeof a.type === "string" && finitePoint(a.position) && finitePoint(a.scale));
+  return !!g && typeof g.id === "string" && g.id.length > 0 && typeof g.name === "string" && g.name.length <= 80 && validSettings(g.settings) && (g.route === undefined || (Array.isArray(g.route) && g.route.length >= 2 && g.route.length <= 501 && g.route.every(finitePoint) && g.route.every((p,i)=>i===0||Math.hypot(p.x-g.route![i-1].x,p.y-g.route![i-1].y)>.01))) && Array.isArray(g.anchors) && new Set(g.anchors.map(a => a?.id)).size === g.anchors.length && g.anchors.every(a => a && typeof a.id === "string" && typeof a.name === "string" && typeof a.type === "string" && finitePoint(a.position) && finitePoint(a.scale));
 }
 // Packets stay below the SDK's 16 KB broadcast limit, including Thai text.
 export interface StatePacket {transfer: string; index: number; total: number; data: string}

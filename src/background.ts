@@ -56,7 +56,7 @@ async function cell(point:Point):Promise<Point> {
 async function drawRoute() {
   const drawingEpoch=epoch;
   const g=groups.views().find(g=>g.id===state.selectedId);
-  const points=state.gm&&state.ready&&state.routeVisible!==false&&g?.a?[g.a,...(state.pickingId===g.id&&state.pickMode==="line"?(state.draft??[]):g.route??(g.b?[g.b]:[]))]:[];
+  const points=state.gm&&state.ready&&state.routeVisible!==false&&g?(state.pickingId===g.id&&state.pickMode==="line"?(state.draft??[]):g.route??[]):[];
   const signature=JSON.stringify([epoch,state.selectedId,points]);
   if(signature===routeSignature)return;
   routeSignature="";
@@ -68,9 +68,9 @@ async function drawRoute() {
     const preview:Item[]=[];
     if(points.length>1)preview.push(buildCurve().points(points).tension(0).strokeColor("#8be6c8").strokeWidth(Math.max(2,dpi*.035)).fillOpacity(0).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name("Token Move LINE — preview").build());
     for(const [index,p] of points.entries()) {
-      const radius=dpi*.11;
+      const radius=dpi*(index===0?.15:.09);
       const ring=Array.from({length:12},(_,i)=>({x:p.x+Math.cos(i*Math.PI/6)*radius,y:p.y+Math.sin(i*Math.PI/6)*radius}));
-      preview.push(buildCurve().points(ring).closed(true).tension(0).strokeColor(index===0?"#c6deff":"#8be6c8").strokeWidth(Math.max(1,dpi*.02)).fillColor("#8be6c8").fillOpacity(.35).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name(`LINE ${index===0?"A":index}`).build());
+      preview.push(buildCurve().points(ring).closed(true).tension(0).strokeColor(index===0?"#b9e7ff":"#8be6c8").strokeWidth(Math.max(1,dpi*.02)).fillColor(index===0?"#b9e7ff":"#8be6c8").fillOpacity(.35).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name(`LINE ${index===0?"เริ่ม":index+1}`).build());
     }
     await OBR.scene.local.addItems(preview);
     if(drawingEpoch!==epoch){await OBR.scene.local.deleteItems(preview.map(i=>i.id));return;}
@@ -81,6 +81,7 @@ async function drawRoute() {
 function enqueue(action:()=>Promise<void>, expectedEpoch=epoch) {
   queue=queue.then(async()=>{if(expectedEpoch===epoch) await action();}).catch(async error=>{
     state.message=error instanceof Error?error.message:"เกิดข้อผิดพลาด กรุณาลองใหม่";
+    state.error=state.message;
     if(state.pickingId)await OBR.notification.show(state.message,"ERROR").catch(console.error);
     await publish().catch(console.error);
   });
@@ -95,7 +96,7 @@ async function selectedItems() {
   return OBR.scene.items.getItems(ids);
 }
 async function save() {
-  try {await OBR.scene.setMetadata({[storageKey]:{version:2,gridVersion:1,groups:groups.export()}});}
+  try {await OBR.scene.setMetadata({[storageKey]:{version:3,gridVersion:1,groups:groups.export()}});}
   catch {state.message="กลุ่มยังอยู่ในรอบนี้ แต่บันทึกลง Scene ไม่สำเร็จ กรุณาลองบันทึกอีกครั้ง";}
 }
 async function restoreTool() {
@@ -112,7 +113,7 @@ async function finishLine() {
   const id=state.pickingId;
   groups.setPath(id,state.draft??[]);
   const count=state.draft?.length??0;
-  await cancelPick();state.message=`บันทึก LINE ${count} จุดแล้ว • Loop จะย้อนตามเส้นเดิม`;
+  await cancelPick();state.message=`บันทึก LINE ${count} จุดแล้ว • พร้อมเริ่มเดิน`;
   await save();await publish();await OBR.action.open();
 }
 async function loadScene(ready:boolean) {
@@ -126,24 +127,18 @@ async function loadScene(ready:boolean) {
   }
   routeSignature="";
   await groups.clear();
-  state={...initialState,routeVisible:true,ready,gm:await OBR.player.getRole()==="GM",message:ready?"เพิ่มกลุ่ม แล้วเลือกช่อง B หรือสร้าง LINE":"กรุณาเปิด Scene ก่อน"};
+  state={...initialState,routeVisible:true,ready,gm:await OBR.player.getRole()==="GM",message:ready?"เลือก Token แล้วเพิ่มกลุ่มเพื่อสร้าง LINE":"กรุณาเปิด Scene ก่อน"};
   if(ready&&state.gm) {
     const metadata=await OBR.scene.getMetadata();
     const saved=metadata[storageKey] as {version?:number;gridVersion?:number;groups?:unknown}|undefined;
-    if(saved?.version===2) groups.hydrate(saved.groups);
-    let migrated=false,needsB=false;
-    // Upgrade the user's existing 2.0 destinations once; keep A and group membership.
-    if(saved?.version===2&&saved.gridVersion!==1) {
-      for(const g of groups.views())if(g.b&&!g.route&&g.a) {
-        const destination=await cell(g.b);
-        if(Math.hypot(destination.x-g.a.x,destination.y-g.a.y)<.01){groups.clearDestination(g.id);needsB=true;}
-        else groups.setB(g.id,destination);
-        migrated=true;
-      }
+    if(saved?.version===2||saved?.version===3)groups.hydrate(saved.groups,saved.version);
+    if(saved?.version===2&&saved.gridVersion!==1)for(const g of groups.views())if(g.route){
+      const points:Point[]=[];for(const p of g.route)points.push(await cell(p));
+      try{groups.setPath(g.id,points);}catch{groups.clearRoute(g.id);}
     }
     state.selectedId=groups.views()[0]?.id;
     if(groups.size) state.message=`โหลด ${groups.size} กลุ่มแล้ว • กดเริ่มเมื่อพร้อม`;
-    if(migrated){state.message=needsB?"ปรับ B เดิมเข้าช่องแล้ว • กลุ่มที่ A/B ช่องเดียวกันต้องเลือก B ใหม่":"ปรับ B เดิมทุกกลุ่มเข้ากึ่งกลางช่องแล้ว";await save();}
+    if(saved?.version===2){state.message="แปลงกลุ่มเดิมเป็น LINE แล้ว • เปลี่ยนช่องเริ่มได้เลย";await save();}
   }
   await publish();
 }
@@ -152,7 +147,7 @@ async function handle(command:Command) {
   if(command.type==="status") {await publish(); return;}
   await requireGM();
   if(command.type==="create") {
-    const items=command.capture?await selectedItems():[];
+    const items=await selectedItems();
     const id=crypto.randomUUID(); groups.create(id,items); state.selectedId=id;
     state.message="เพิ่มกลุ่มใหม่แล้ว"; await save();
   } else if(command.type==="stopAll") {
@@ -160,24 +155,25 @@ async function handle(command:Command) {
   } else if(command.type==="startAll") {
     if(state.pickingId) await cancelPick();
     const errors=await groups.startAll(await OBR.scene.grid.getDpi(),performance.now());
-    state.message=errors.length?errors.join(" • "):"เริ่มทุกกลุ่มที่มี A/B แล้ว";
+    state.message=errors.length?errors.join(" • "):"เริ่มทุกกลุ่มที่มี LINE แล้ว";
   } else if("id" in command) {
     if(!groups.has(command.id)) throw new Error("ไม่พบกลุ่มนี้");
     state.selectedId=command.id;
     if(command.type==="select") {if(state.pickingId&&state.pickingId!==command.id)await cancelPick();await publish(); return;}
     if(command.type==="capture") {
-      const items=await selectedItems(); await cancelPick(); groups.capture(command.id,items); state.message="บันทึก A ของกลุ่มนี้แล้ว"; await save();
+      const items=await selectedItems(); await cancelPick(); groups.capture(command.id,items); state.message="เปลี่ยน Token แล้ว • LINE เดิมยังอยู่"; await save();
     } else if(command.type==="update") {
       groups.update(command.id,command.name,command.settings); state.message="บันทึกการตั้งค่ากลุ่มแล้ว"; await save();
-    } else if(command.type==="pick"||command.type==="pickLine") {
+    } else if(command.type==="pickStart"||command.type==="pickLine") {
       const g=groups.views().find(g=>g.id===command.id)!;
-      if(!g.a) throw new Error("บันทึก A ให้กลุ่มนี้ก่อน");
+      if(!g.count)throw new Error("เลือก Token ให้กลุ่มนี้ก่อน");
+      if(command.type==="pickStart"&&!g.route)throw new Error("สร้าง LINE ก่อนเปลี่ยนช่องเริ่ม");
       if(g.running) throw new Error("หยุดกลุ่มนี้ก่อนเลือกช่องเดิน");
       if(state.pickingId)await cancelPick();
       const active=await OBR.tool.getActiveTool(); if(active!==ID) previousTool=active;
-      state.pickingId=command.id;state.pickMode=command.type==="pickLine"?"line":"destination";state.draft=[];state.routeVisible=true;
-      state.message=state.pickMode==="line"?"LINE: คลิกช่องตามลำดับ • Enter บันทึก • Backspace ย้อน 1 จุด • Esc ยกเลิก":"คลิกช่อง B • ระบบเลือกกึ่งกลางช่อง • Esc ยกเลิก";
-      try {await OBR.tool.activateTool(ID); await OBR.tool.activateMode(ID,`${ID}/destination`);}
+      state.pickingId=command.id;state.pickMode=command.type==="pickLine"?"line":"start";state.draft=[];state.routeVisible=true;
+      state.message=state.pickMode==="line"?"คลิกช่องเริ่ม → ช่องถัดไป • คลิกช่องล่าสุดซ้ำหรือ Enter เพื่อบันทึก • Esc ยกเลิก":"คลิกช่องเริ่มใหม่ของ LINE • จุดอื่นคงเดิม • Esc ยกเลิก";
+      try {await OBR.tool.activateTool(ID); await OBR.tool.activateMode(ID,`${ID}/line`);}
       catch(error) {await cancelPick();throw error;}
       pickNotice=await OBR.notification.show(state.message,"INFO");
       await publish(); await OBR.action.close(); return;
@@ -190,18 +186,13 @@ async function handle(command:Command) {
       await cancelPick();state.message="ยกเลิกแล้ว • เส้นทางเดิมยังอยู่";
     } else if(command.type==="showRoute") {
       state.routeVisible=state.routeVisible===false;state.message=state.routeVisible?"แสดงเส้นทางเฉพาะคุณ":"ซ่อนเส้นทางแล้ว";
-    } else if(command.type==="destinationFromSelection") {
-      const items=await selectedItems();
-      if(items.length!==1) throw new Error("เลือกวัตถุอ้างอิงปลายทางเพียง 1 ชิ้น");
-      const destination=await cell(items[0].position);
-      await cancelPick(); groups.setB(command.id,destination); state.message="ล็อค B ที่กึ่งกลางช่องของวัตถุที่เลือกแล้ว"; await save();
     } else if(command.type==="start") {
       if(state.pickingId) await cancelPick();
       await groups.start(command.id,await OBR.scene.grid.getDpi(),performance.now()); state.message="เริ่มเดินกลุ่มนี้แล้ว";
     } else if(command.type==="stop") {
       await groups.stop(command.id); if(state.pickingId===command.id) await cancelPick(); state.message="หยุดกลุ่มนี้แล้ว";
     } else if(command.type==="reset") {
-      if(state.pickingId===command.id) await cancelPick(); await groups.reset(command.id); state.message="กลับ A แล้ว";
+      if(state.pickingId===command.id) await cancelPick(); await groups.reset(command.id); state.message="วางที่ช่องเริ่มของ LINE แล้ว";
     } else if(command.type==="remove") {
       if(state.pickingId===command.id) await cancelPick(); await groups.remove(command.id);
       state.selectedId=groups.views()[0]?.id; state.message="ลบกลุ่มแล้ว • Token ยังอยู่บนแผนที่"; await save();
@@ -217,9 +208,9 @@ OBR.onReady(async()=>{
     previousTool=await OBR.tool.getActiveTool();
     OBR.tool.onToolChange(id=>{if(id!==ID) previousTool=id;});
     const icon=new URL("icon.svg",location.href).href;
-    await OBR.tool.create({id:ID,icons:[{icon,label:"Token Move • เลือกช่อง / LINE",filter:{roles:["GM"]}}],defaultMode:`${ID}/destination`});
+    await OBR.tool.create({id:ID,icons:[{icon,label:"Token Move • LINE",filter:{roles:["GM"]}}],defaultMode:`${ID}/line`});
     await OBR.tool.createMode({
-      id:`${ID}/destination`,icons:[{icon,label:"คลิกปลายทาง B",filter:{activeTools:[ID],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
+      id:`${ID}/line`,icons:[{icon,label:"เลือกช่อง LINE",filter:{activeTools:[ID],roles:["GM"]}}],cursors:[{cursor:"crosshair"}],
       onToolClick:(_,event)=>{
         const point={...event.pointerPosition}; const picking=state.pickingId;
         enqueue(async()=>{
@@ -227,14 +218,14 @@ OBR.onReady(async()=>{
           if(!picking||state.pickingId!==picking) {await OBR.action.open(); return;}
           const destination=await cell(point);
           if(state.pickMode==="line") {
-            const draft=state.draft??[];const last=draft[draft.length-1]??groups.views().find(g=>g.id===picking)?.a;
-            if(last&&Math.hypot(last.x-destination.x,last.y-destination.y)<.01)return;
-            if(draft.length>=500)throw new Error("LINE นี้มี 500 จุดแล้ว กด Enter เพื่อบันทึก");
-            state.draft=[...draft,destination];state.message=`LINE ${state.draft.length} จุด • คลิกช่องต่อไป • Enter บันทึก`;
+            const draft=state.draft??[],last=draft.at(-1);
+            if(last&&Math.hypot(last.x-destination.x,last.y-destination.y)<.01){if(draft.length>=2)await finishLine();return;}
+            if(draft.length>=501)throw new Error("LINE นี้มี 501 จุดแล้ว กด Enter เพื่อบันทึก");
+            state.draft=[...draft,destination];state.message=draft.length?`LINE ${state.draft.length} จุด • คลิกจุดล่าสุดซ้ำเพื่อบันทึก` : "เลือกช่องเริ่มแล้ว • คลิกช่องถัดไป";
             await publish();return;
           }
-          groups.setB(picking,destination);await cancelPick();
-          state.message="ล็อค B ที่กึ่งกลางช่องแล้ว • พร้อมเดิน"; await save(); await publish(); await OBR.action.open();
+          groups.setStart(picking,destination);await cancelPick();
+          state.message="เปลี่ยนช่องเริ่มของ LINE แล้ว"; await save(); await publish(); await OBR.action.open();
         });
       },
       onKeyDown:(_,event)=>{
@@ -244,12 +235,12 @@ OBR.onReady(async()=>{
       },
       onDeactivate:()=>enqueue(async()=>{if(state.pickingId){await cancelPick();state.message="ยกเลิกแล้ว • เส้นทางเดิมยังอยู่";await publish();}})
     });
-    const types=["status","create","select","capture","update","pick","pickLine","finishLine","undoLine","cancelPick","showRoute","destinationFromSelection","start","stop","reset","remove","startAll","stopAll"];
+    const types=["status","create","select","capture","update","pickStart","pickLine","finishLine","undoLine","cancelPick","showRoute","start","stop","reset","remove","startAll","stopAll"];
     OBR.broadcast.onMessage(COMMAND,event=>{
       if(event.connectionId!==connectionId) return;
       const data=event.data as CommandMessage;
       const command=data?.command;
-      if(typeof data?.request==="string"&&command&&types.includes(command.type)) enqueue(async()=>{state.lastRequest=data.request;await handle(command);});
+      if(typeof data?.request==="string"&&command&&types.includes(command.type)) enqueue(async()=>{state.lastRequest=data.request;state.error=undefined;await handle(command);});
     });
     OBR.scene.onReadyChange(ready=>{
       const nextEpoch=++epoch;

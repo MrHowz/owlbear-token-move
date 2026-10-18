@@ -3,200 +3,162 @@ import {COMMAND, STATE, VERSION, initialState, defaultSettings, type Command, ty
 import "./style.css";
 
 document.querySelector("#app")!.innerHTML=`
-<header><div class="brand">↗</div><div><h1>Token Move <span>${VERSION}</span></h1><p>ล็อคช่องกริด · LINE ทีละช่อง · หลายกลุ่ม</p></div><span id="connection" class="badge">เชื่อมต่อ…</span></header>
-<div id="demo-banner" hidden>ตัวอย่างหน้าควบคุม • ใช้งานจริงผ่าน Owlbear Rodeo</div>
-<section class="fleet"><div class="section-heading"><h2>กลุ่มการเคลื่อนที่ <span id="group-count">0</span></h2><span id="running-count">0 กำลังเดิน</span></div>
-<div class="add-row"><button id="create-selected" class="primary">＋ เพิ่มกลุ่มจาก Token ที่เลือก</button><button id="create-empty" class="secondary" title="เพิ่มกลุ่มว่าง" aria-label="เพิ่มกลุ่มว่าง">＋</button></div>
+<header><div class="brand" aria-hidden="true">↗</div><div><h1>Token Move <span>LINE</span></h1><p>เลือกช่องเริ่ม แล้ววางเส้นทางของคุณ</p></div><span id="connection" class="connection">เชื่อมต่อ…</span></header>
+<div id="demo-banner" hidden>ตัวอย่างหน้าควบคุม · เปิดผ่าน Owlbear เพื่อใช้งาน</div>
+<section class="fleet"><div class="section-heading"><h2>กลุ่มของคุณ <span id="group-count">0</span></h2><span id="running-count"></span></div>
+<button id="create" class="primary full add">＋ เพิ่มกลุ่มจาก Token ที่เลือก</button>
 <div id="group-list" class="group-list" aria-label="เลือกกลุ่ม"></div>
-<div class="all-controls"><button id="start-all" class="text-button">▶ เริ่มทุกกลุ่ม</button><button id="stop-all" class="text-button stop">■ หยุดทุกกลุ่ม</button></div></section>
-<div id="empty" class="empty"><span>↗</span><h2>เริ่มเส้นทางแรกของคุณ</h2><p>เลือก Token หนึ่งตัวหรือหลายตัวในฉาก<br>แล้วกด “เพิ่มกลุ่มจาก Token ที่เลือก” ด้านบน</p></div>
+<div id="fleet-actions" class="fleet-actions" hidden><button id="start-all" class="quiet">▶ เริ่มทั้งหมด</button><button id="stop-all" class="quiet stop">■ หยุดทั้งหมด</button></div></section>
+<section id="empty" class="empty"><div aria-hidden="true">⌁</div><h2>สร้าง LINE แรก</h2><p>เลือก Token บนแผนที่ แล้วกดเพิ่มกลุ่ม<br>ช่องเริ่มต้นเลือกเองได้ตอนวาด LINE</p><ol><li>เลือก Token</li><li>วาด LINE</li><li>เริ่มเดิน</li></ol></section>
 <section id="editor" hidden>
-<div class="editor-heading"><label for="group-name">ชื่อกลุ่ม</label><input id="group-name" maxlength="80" placeholder="เช่น ยามหน้าประตู"><span id="group-status" class="badge">พร้อม</span></div>
-<p id="selection" class="hint"></p>
-<div class="route"><div class="point"><span>A · เริ่มต้น</span><strong id="a">—</strong></div><span class="route-arrow">⇄</span><div class="point end"><span>B · ปลายทาง</span><strong id="b">—</strong></div></div>
-<div class="route-buttons"><button id="capture" class="secondary">บันทึก A / เปลี่ยน Token</button><button id="pick" class="secondary accent">⌖ เลือกช่อง B</button></div>
-<p class="grid-note">B ยึดกึ่งกลางช่องกริด · ขนาด Token คงเดิม</p>
-<button id="from-selection" class="text-button full small">ใช้ช่องของวัตถุที่เลือก 1 ชิ้นเป็น B</button>
-<div class="line-heading"><strong id="route-kind">เส้นตรง A → B</strong><button id="show-route" class="text-button">ซ่อนเส้นทาง</button></div>
-<button id="pick-line" class="secondary accent full">＋ LINE · คลิกเลือกช่องเดินทีละช่อง</button>
-<p class="grid-note">เลือกช่องตามลำดับ → Enter บันทึก · Backspace ย้อน 1 จุด · Esc ยกเลิก</p>
-<div id="draft-controls" hidden><p id="draft-count"></p><div class="draft-buttons"><button id="finish-line" class="primary">✓ บันทึก LINE</button><button id="undo-line" class="secondary">↶ ย้อน 1 จุด</button><button id="cancel-pick" class="text-button">ยกเลิก</button></div></div>
-<details id="route-details" hidden><summary id="route-summary">ลำดับช่องเดิน</summary><ol id="route-nodes"></ol></details>
-<div class="settings"><label class="row" for="speed">ความเร็ว<span><input id="speed" type="number" min="0.1" max="20" step="0.1" value="2"> ช่อง/วินาที</span></label>
-<label class="row" for="mode">รูปแบบ<select id="mode"><option value="patrol">Loop ไปกลับ A ↔ B</option><option value="once">เที่ยวเดียว → B</option></select></label>
-<label class="row" for="smooth">ค่อย ๆ ออกตัวและหยุด<input type="checkbox" id="smooth"></label>
-<label class="row" for="flip"><span>Flip Token ตามทิศเดิน <small>เฉพาะรูปภาพ</small></span><input type="checkbox" id="flip" checked></label>
-<label class="row" for="facing">ภาพต้นฉบับหันไปทาง<select id="facing"><option value="right">ขวา →</option><option value="left">ซ้าย ←</option></select></label>
-<button id="save" class="secondary full save">บันทึกการตั้งค่า</button><p id="dirty-note" class="dirty-note" hidden>มีการแก้ไข • บันทึกการตั้งค่าก่อนเริ่มเดิน</p></div>
-<div class="controls"><button id="start" class="primary">▶ เริ่มกลุ่มนี้</button><button id="stop" class="secondary">■ หยุด</button></div>
-<div class="progress-heading"><span id="direction">A → B</span><span id="percent">0%</span></div><progress id="progress" value="0" max="1" aria-label="ความคืบหน้ากลุ่ม"></progress>
-<p id="group-message" class="group-message"></p><div class="bottom-actions"><button id="reset" class="text-button">↶ กลับ A + คืน Flip</button><button id="remove" class="text-button danger">ลบกลุ่ม</button></div>
+<div class="editor-heading"><label class="sr-only" for="group-name">ชื่อกลุ่ม</label><input id="group-name" maxlength="80" placeholder="ตั้งชื่อกลุ่ม"><span id="group-status" class="badge"></span></div>
+<p id="selection" class="muted members"></p>
+<section class="route-card"><div class="section-heading"><h2>เส้นทาง LINE <span id="point-count"></span></h2><button id="show-route" class="quiet small">ซ่อนเส้นทาง</button></div>
+<p id="route-hint" class="route-hint"></p><div class="route-actions"><button id="pick-line" class="secondary">✎ วาด LINE</button><button id="pick-start" class="secondary">⌖ เปลี่ยนจุดเริ่ม</button></div>
+<p id="draft-count" class="draft-count" hidden></p></section>
+<section id="settings" class="settings"><div class="speed-row"><label for="speed">ความเร็ว<small>ช่อง / วินาที</small></label><div class="stepper"><button id="slower" aria-label="ลดความเร็ว">−</button><input id="speed" type="number" min="0.1" max="20" step="0.1" value="2"><button id="faster" aria-label="เพิ่มความเร็ว">＋</button></div></div>
+<fieldset><legend>รูปแบบการเดิน</legend><input type="hidden" id="mode" value="patrol"><div class="segmented"><button id="mode-once" aria-pressed="false">เดินครั้งเดียว</button><button id="mode-patrol" aria-pressed="true">↔ วนไปกลับ</button></div></fieldset>
+<label class="toggle-row" for="flip"><span>หันหน้าตามทางเดิน<small>Flip ภาพเมื่อเดินกลับ</small></span><input id="flip" type="checkbox" checked></label>
+<div id="dirty-note" class="dirty-note" hidden><span>มีการตั้งค่าใหม่ · กดเริ่มเพื่อใช้ค่า</span><button id="save" class="quiet small">บันทึก</button></div>
 </section>
-<p id="status" role="status" aria-live="polite" class="status"></p>
-<details><summary>วิธีใช้และการหันหน้า</summary><p>1. เลือก Token → เพิ่มกลุ่ม<br>2. เลือกช่อง B สำหรับทางตรง หรือกด LINE เพื่อคลิกช่องตามลำดับแล้ว Enter บันทึก<br>3. ตั้ง Loop / Flip แล้วบันทึก → เริ่มกลุ่มนี้<br>4. เลือก Token ชุดอื่นแล้วเพิ่มกลุ่มใหม่ได้เลย</p><p>LINE เชื่อมศูนย์กลางช่องตามลำดับที่คลิก คลิกช่องติดกันหากต้องการกำหนดทุกช่อง ไม่มีการหลบกำแพงอัตโนมัติ Loop จะเดินย้อนผ่านทุกจุดเดิม</p><p>“ภาพต้นฉบับ” หมายถึงภาพก่อน Flip หากหันผิดให้หยุดกลุ่ม เปลี่ยนซ้าย/ขวา บันทึก แล้วเริ่มต่อ เส้นทางแนวตั้งจะสลับ Flip ตอนกลับ A</p><p>วาง Token ให้ตรงช่องก่อนบันทึก A ระบบรักษาระยะห่างทั้งกลุ่ม ไม่ย่อรูปให้เล็กลง กลุ่มเก่าที่สร้างก่อน 2.1 ให้เลือก B ใหม่เพื่อล็อคช่อง</p><p>เส้นทางบันทึกใน Scene แยกตามผู้ควบคุม หลังรีโหลดต้องกดเริ่มใหม่ เส้นสีเขียวเห็นเฉพาะคุณ กลุ่มที่ใช้ Token ซ้ำกันเดินพร้อมกันไม่ได้ ลบกลุ่มไม่ลบ Token</p></details>
-<footer>GM controls · ปิดแผงได้ แต่เปิดห้องไว้ขณะเดิน<br>v${VERSION} · เส้นทางกำหนดเอง ไม่ตรวจสิ่งกีดขวาง</footer>`;
+<details id="more"><summary>ตัวเลือกเพิ่มเติม</summary><div class="more-content">
+<label class="toggle-row" for="smooth"><span>ค่อย ๆ ออกตัวและหยุด<small>ในแต่ละช่วงของ LINE</small></span><input id="smooth" type="checkbox"></label>
+<label class="select-row" for="facing">ภาพต้นฉบับหันไปทาง<select id="facing"><option value="right">ขวา →</option><option value="left">ซ้าย ←</option></select></label>
+<details id="route-details"><summary id="route-summary">ลำดับช่องเดิน</summary><ol id="route-nodes"></ol></details>
+<div class="extra-actions"><button id="capture" class="secondary">เปลี่ยน Token ของกลุ่ม</button><button id="reset" class="secondary">กลับจุดเริ่มของ LINE</button><button id="remove" class="quiet danger">ลบกลุ่ม</button></div>
+</div></details>
+</section>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<footer>Token Move ${VERSION} · GM controls</footer>
+<section id="dock" class="dock" hidden aria-label="ควบคุมการเดิน"><div id="walk-controls"><div class="progress-heading"><span id="direction"></span><span id="percent"></span></div><progress id="progress" value="0" max="1" aria-label="ความคืบหน้า LINE"></progress><div class="controls"><button id="start" class="primary">▶ เริ่มเดิน</button><button id="stop" class="stop-button">■ หยุด</button></div><p id="placement-note" class="placement-note"></p></div>
+<div id="draft-controls" hidden><button id="finish-line" class="primary full">✓ บันทึก LINE</button><div class="draft-actions"><button id="undo-line" class="secondary">↶ ย้อน 1 จุด</button><button id="cancel-pick" class="quiet">ยกเลิก</button></div></div></section>`;
 
 const el=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const button=(id:string)=>el<HTMLButtonElement>(id);
-let state:State={...initialState}; let online=false, editorId:string|undefined, dirty=false;
-let pending:{id:string;type:Command["type"];timer:ReturnType<typeof setTimeout>;resolve:()=>void}|undefined;
-let editingGroup:GroupView|undefined;
+let state:State={...initialState},online=false,editorId:string|undefined,dirty=false,editingGroup:GroupView|undefined;
+let pending:{id:string;type:Command["type"];timer:ReturnType<typeof setTimeout>;resolve:(ok:boolean)=>void}|undefined;
 let cardIds="",routeNodesKey="";
-const format=(point?:{x:number;y:number})=>point?`${Math.round(point.x)}, ${Math.round(point.y)}`:"—";
-function setFields(g:GroupView) {
-  el<HTMLInputElement>("group-name").value=g.name; el<HTMLInputElement>("speed").value=String(g.settings.speed);
-  el<HTMLSelectElement>("mode").value=g.settings.mode; el<HTMLInputElement>("smooth").checked=g.settings.smooth;
-  el<HTMLInputElement>("flip").checked=g.settings.flip; el<HTMLSelectElement>("facing").value=g.settings.facing;
+const format=(p:{x:number;y:number})=>`${Math.round(p.x)}, ${Math.round(p.y)}`;
+function setFields(g:GroupView){
+  el<HTMLInputElement>("group-name").value=g.name;el<HTMLInputElement>("speed").value=String(g.settings.speed);
+  el<HTMLInputElement>("mode").value=g.settings.mode;el<HTMLInputElement>("flip").checked=g.settings.flip;
+  el<HTMLInputElement>("smooth").checked=g.settings.smooth;el<HTMLSelectElement>("facing").value=g.settings.facing;
 }
-function render(next:State) {
-  state=next;
-  const g=state.groups.find(g=>g.id===state.selectedId)??state.groups[0]; editingGroup=g;
-  if(editorId!==g?.id){editorId=g?.id;dirty=false;if(g)setFields(g);}
-  else if(g&&!dirty) setFields(g);
-  el("connection").textContent=online?(state.gm?"GM":"ผู้เล่น"):"ตัวอย่าง";
+function settings():Settings{return {speed:el<HTMLInputElement>("speed").valueAsNumber,mode:el<HTMLInputElement>("mode").value==="once"?"once":"patrol",flip:el<HTMLInputElement>("flip").checked,smooth:el<HTMLInputElement>("smooth").checked,facing:el<HTMLSelectElement>("facing").value==="left"?"left":"right"};}
+function render(next:State){
+  state=next;const g=state.groups.find(g=>g.id===state.selectedId)??state.groups[0];editingGroup=g;
+  if(editorId!==g?.id){editorId=g?.id;dirty=false;if(g)setFields(g);}else if(g&&!dirty)setFields(g);
+  const unavailable=!online||!state.gm||!state.ready||!!pending,picking=!!state.pickingId;
+  el("connection").textContent=online?(state.gm?"● GM":"ผู้เล่น"):"ตัวอย่าง";
   el("group-count").textContent=String(state.groups.length);
-  el("running-count").textContent=`${state.groups.filter(g=>g.running).length} กำลังเดิน`;
-  const list=el("group-list");
-  // Keep controls and route nodes mounted while progress changes; do not rebuild hundreds
-  // of DOM nodes every status update on the same browser that renders the scene.
-  const ids=JSON.stringify(state.groups.map(group=>group.id));
-  if(ids!==cardIds){
-    const scroll=list.scrollTop;cardIds=ids;
-    list.replaceChildren(...state.groups.map(group=>{
-      const row=document.createElement("button");row.dataset.groupId=group.id;
-      const dot=document.createElement("span"),body=document.createElement("span"),tag=document.createElement("span");
-      body.className="group-card-body";tag.className="card-state";
-      body.append(document.createElement("strong"),document.createElement("small"));
-      row.append(dot,body,tag);return row;
-    }));list.scrollTop=scroll;
-  }
-  state.groups.forEach((group,index)=>{
-    const row=list.children[index] as HTMLButtonElement;
-    row.className=`group-card ${group.id===g?.id?"selected":""}`;row.setAttribute("aria-pressed",String(group.id===g?.id));
-    row.children[0].className=`dot ${group.running?"live":""}`;
-    const info=`${group.count} Token · ${group.route?`LINE ${group.route.length}`:"ตรง"} · ${group.settings.mode==="patrol"?"Loop ↔":"เที่ยวเดียว →"}${group.settings.flip?" · Flip":""}`;
-    const tag=group.running?(group.direction==="return"?"B → A":"A → B"):(group.b?"พร้อม":"ตั้งเส้นทาง");
-    const values:[[Element,string],[Element,string],[Element,string]]=[[row.children[1].children[0],group.name],[row.children[1].children[1],info],[row.children[2],tag]];
-    for(const [node,value] of values)if(node.textContent!==value)node.textContent=value;
-    row.disabled=!online||!!pending;
+  const running=state.groups.filter(g=>g.running).length;el("running-count").textContent=running?`${running} กลุ่มกำลังเดิน`:"";
+  button("create").disabled=unavailable||picking;
+  el("fleet-actions").hidden=state.groups.length<2;
+  button("start-all").disabled=unavailable||picking||!state.groups.some(g=>g.route&&g.count&&!g.running);
+  button("stop-all").disabled=unavailable||!running;
+  const list=el("group-list"),ids=JSON.stringify(state.groups.map(g=>g.id));
+  if(ids!==cardIds){const scroll=list.scrollTop;cardIds=ids;list.replaceChildren(...state.groups.map(group=>{
+    const row=document.createElement("button");row.dataset.groupId=group.id;
+    row.innerHTML='<span class="dot"></span><span class="group-card-body"><strong></strong><small></small></span><span class="card-state"></span>';return row;
+  }));list.scrollTop=scroll;}
+  state.groups.forEach((group,i)=>{
+    const row=list.children[i] as HTMLButtonElement;row.className=`group-card ${group.id===g?.id?"selected":""}`;
+    row.setAttribute("aria-pressed",String(group.id===g?.id));row.children[0].className=`dot ${group.running?"live":""}`;
+    const values:[Element,string][]=[[row.children[1].children[0],group.name],[row.children[1].children[1],`${group.count} Token · ${group.route?`${group.route.length} จุด`:"ยังไม่มี LINE"}`],[row.children[2],group.running?"กำลังเดิน":group.route?"พร้อม":"สร้าง LINE"]];
+    for(const [node,value]of values)if(node.textContent!==value)node.textContent=value;
+    row.disabled=unavailable||picking;
   });
-  el("empty").hidden=!!g;el("editor").hidden=!g;
-  const unavailable=!online||!state.ready||!state.gm||!!pending;
-  for(const id of ["create-selected","create-empty"]) button(id).disabled=unavailable||!!state.pickingId;
-  button("start-all").disabled=unavailable||dirty||!!state.pickingId||!state.groups.some(g=>g.b&&!g.running);
-  button("stop-all").disabled=unavailable||(!state.groups.some(g=>g.running)&&!state.pickingId);
-  el("status").textContent=pending?"กำลังส่งคำสั่ง…":state.message;
+  el("empty").hidden=!!g;el("editor").hidden=!g;el("dock").hidden=!g;
+  const message=pending?"กำลังทำรายการ…":state.error??state.message;
+  el("status").textContent=message;el("status").classList.toggle("error",!!state.error);el("status").hidden=!message;
   if(!g)return;
-  el("selection").textContent=g.count?`${g.count} วัตถุ · ${g.names.join(", ")}${g.count>g.names.length?" …":""}`:"ยังไม่ได้บันทึก Token ในกลุ่มนี้";
-  el("a").textContent=format(g.a);el("b").textContent=format(g.b);
-  el("group-status").textContent=g.running?"กำลังเดิน":(state.pickingId===g.id?(state.pickMode==="line"?"เลือก LINE":"เลือก B"):"หยุด");
-  const drawing=state.pickingId===g.id&&state.pickMode==="line";
-  const route=drawing?(state.draft??[]):g.route??[];
-  el("route-kind").textContent=drawing?`กำลังเลือก LINE · ${route.length} จุด`:g.route?`LINE · ${g.route.length} จุด → B`:"เส้นตรง A → B";
-  el("draft-controls").hidden=!drawing;
-  el("draft-count").textContent=`เลือกแล้ว ${route.length} จุด • เส้นเดิมจะเปลี่ยนเมื่อบันทึกเท่านั้น`;
-  button("finish-line").disabled=unavailable||!drawing||!route.length;
-  button("undo-line").disabled=unavailable||!drawing||!route.length;
-  button("cancel-pick").disabled=unavailable||!drawing;
-  button("show-route").disabled=unavailable||!g.a;
+  const drawing=state.pickingId===g.id&&state.pickMode==="line",pickingStart=state.pickingId===g.id&&state.pickMode==="start";
+  const route=drawing?(state.draft??[]):g.route??[],locked=unavailable||g.running||picking;
+  el("group-status").textContent=g.running?"กำลังเดิน":picking?"เลือกช่อง":"หยุด";
+  el("selection").textContent=g.count?`${g.count} Token · ${g.names.join(", ")}${g.count>g.names.length?" …":""}`:"ยังไม่มี Token · เลือก Token แล้วเปลี่ยนสมาชิกในตัวเลือกเพิ่มเติม";
+  el("point-count").textContent=route.length?`${route.length} จุด`:"";
+  el("route-hint").textContent=pickingStart?"คลิกช่องเริ่มใหม่บนแผนที่ จุดถัดไปยังอยู่ที่เดิม":drawing?(route.length?"คลิกช่องถัดไป หรือคลิกช่องล่าสุดซ้ำเพื่อบันทึก":"คลิกช่องเริ่มต้นที่ต้องการบนแผนที่"):(g.route?"จุดแรกคือช่องเริ่มที่คุณเลือก เปลี่ยนได้ทุกเมื่อที่หยุด":"คลิกช่องเริ่ม → เลือกช่องต่อไป → คลิกช่องล่าสุดซ้ำเพื่อเสร็จ");
+  button("pick-line").textContent=g.route?"✎ วาด LINE ใหม่":"✎ สร้าง LINE";
+  button("pick-line").className=g.route?"secondary":"primary";
+  button("pick-line").disabled=locked||!g.count;button("pick-start").disabled=locked||!g.route;
+  button("pick-start").hidden=!g.route;
   button("show-route").textContent=state.routeVisible===false?"แสดงเส้นทาง":"ซ่อนเส้นทาง";
-  el("route-details").hidden=!route.length;
-  el("route-summary").textContent=`ลำดับจุดเดิน ${route.length} จุด (กึ่งกลางช่อง)`;
-  const nodesKey=JSON.stringify([g.id,route]);
-  if(nodesKey!==routeNodesKey){
-    routeNodesKey=nodesKey;
-    el("route-nodes").replaceChildren(...route.map((p,index)=>{
-      const li=document.createElement("li");li.textContent=`${format(p)}${index===route.length-1?" · B":""}`;return li;
-    }));
-  }
-  const locked=unavailable||g.running||!!state.pickingId;
-  for(const id of ["group-name","speed","mode","smooth","flip","facing"]) (el(id) as HTMLInputElement).disabled=locked;
+  button("show-route").disabled=unavailable||!route.length;
+  el("draft-count").hidden=!drawing;el("draft-count").textContent=`เลือกแล้ว ${route.length} จุด · ต้องมีอย่างน้อย 2 จุด`;
+  el("settings").hidden=picking;el("more").hidden=picking;
+  el("walk-controls").hidden=picking;el("draft-controls").hidden=!picking;
+  button("finish-line").hidden=!drawing;button("finish-line").disabled=unavailable||route.length<2;
+  button("undo-line").hidden=!drawing;button("undo-line").disabled=unavailable||!route.length;
+  button("cancel-pick").disabled=unavailable;
+  for(const id of ["group-name","speed","smooth","flip","facing"]) (el(id) as HTMLInputElement).disabled=locked;
   el<HTMLSelectElement>("facing").disabled=locked||!el<HTMLInputElement>("flip").checked;
-  button("save").disabled=locked||!dirty;
-  el("dirty-note").hidden=!dirty;
-  button("capture").disabled=locked||!!state.pickingId;
-  button("pick").disabled=locked||!g.a;
-  button("pick-line").disabled=locked||!g.a;
-  button("from-selection").disabled=locked||!g.a;
-  button("start").disabled=locked||!g.b||dirty||!!state.pickingId;
-  button("stop").disabled=unavailable||(!g.running&&state.pickingId!==g.id);
-  button("reset").disabled=unavailable||!g.a;
+  button("slower").disabled=locked||settings().speed<=.1;button("faster").disabled=locked||settings().speed>=20;
+  for(const mode of ["once","patrol"]){button(`mode-${mode}`).disabled=locked;button(`mode-${mode}`).setAttribute("aria-pressed",String(settings().mode===mode));}
+  el("dirty-note").hidden=!dirty;button("save").disabled=locked;
+  button("capture").disabled=locked;button("reset").disabled=unavailable||!g.route||!g.count;
   button("remove").disabled=unavailable;
-  el("direction").textContent=(g.direction==="return"?"B → A":"A → B")+(g.route&&g.running?` · ไปจุด ${g.waypointIndex===0?"A":g.waypointIndex}/${g.route.length}`:"");
-  el("percent").textContent=`${Math.round(g.progress*100)}%`;
+  const complete=!g.running&&g.settings.mode==="once"&&g.progress>=1;
+  button("start").textContent=g.running?"▶ กำลังเดิน":complete?"↻ เริ่มรอบใหม่":g.progress>0?"▶ เดินต่อ":"▶ เริ่มเดิน";
+  button("start").disabled=locked||!g.route||!g.count;button("stop").disabled=unavailable||!g.running;
+  el("direction").textContent=g.running?`${g.direction==="return"?"ขากลับ":"ขาไป"} · จุด ${Math.min((g.waypointIndex??1)+1,g.route?.length??0)}/${g.route?.length??0}`:g.message;
+  el("percent").textContent=g.route?`${Math.round(g.progress*100)}%`:"";
   el<HTMLProgressElement>("progress").value=g.progress;
-  el("group-message").textContent=g.message;
+  el("placement-note").textContent=g.running?"ปิดแผงได้ · เปิดห้องค้างไว้ขณะเดิน":g.route?(complete||g.progress===0?"เมื่อเริ่มรอบใหม่ Token จะวางที่ช่องเริ่มของ LINE":"เดินต่อจากตำแหน่งที่หยุดไว้"):"สร้าง LINE ก่อนเริ่มเดิน";
+  el("route-summary").textContent=`ลำดับช่องเดิน${g.route?` · ${g.route.length} จุด`:""}`;
+  const key=JSON.stringify([g.id,g.route]);if(key!==routeNodesKey){routeNodesKey=key;el("route-nodes").replaceChildren(...(g.route??[]).map((p,i)=>{const li=document.createElement("li");li.textContent=`${format(p)}${i===0?" · เริ่ม":i===g.route!.length-1?" · สุดท้าย":""}`;return li;}));}
 }
-async function send(command:Command):Promise<void> {
-  if(pending||!online)return;
-  const id=crypto.randomUUID();
-  const done=new Promise<void>(resolve=>{
-    const timer=setTimeout(()=>{
-      if(pending?.id!==id)return;
-      pending=undefined;state.message="ไม่ได้รับคำตอบจาก background กรุณารีโหลดห้อง";render(state);resolve();
-    },10000);
-    pending={id,type:command.type,timer,resolve};
-  });
+function finishRequest(ok:boolean){if(pending){clearTimeout(pending.timer);const resolve=pending.resolve;pending=undefined;resolve(ok);}}
+async function send(command:Command):Promise<boolean>{
+  if(pending||!online)return false;
+  const id=crypto.randomUUID();const done=new Promise<boolean>(resolve=>{const timer=setTimeout(()=>{if(pending?.id!==id)return;finishRequest(false);state.error="ไม่ได้รับคำตอบ กรุณาลองใหม่หรือรีโหลดห้อง";render(state);},10000);pending={id,type:command.type,timer,resolve};});
   render(state);
-  try {await OBR.broadcast.sendMessage(COMMAND,{request:id,command},{destination:"LOCAL"});}
-  catch {finishRequest(id);state.message="ส่งคำสั่งไม่สำเร็จ กรุณาลองใหม่";render(state);}
+  try{await OBR.broadcast.sendMessage(COMMAND,{request:id,command},{destination:"LOCAL"});}
+  catch{finishRequest(false);state.error="ส่งคำสั่งไม่สำเร็จ กรุณาลองใหม่";render(state);}
   return done;
 }
-function finishRequest(id:string) {if(pending?.id===id){clearTimeout(pending.timer);pending.resolve();pending=undefined;}}
-function receive(next:State) {
-  if(pending&&(next.lastRequest===pending.id||pending.type==="status")){
-    if(pending.type==="update"){
-      const saved=next.groups.find(g=>g.id===editorId);
-      if(saved&&saved.name===el<HTMLInputElement>("group-name").value.trim()&&JSON.stringify(saved.settings)===JSON.stringify(settings()))dirty=false;
-    }
-    clearTimeout(pending.timer);pending.resolve();pending=undefined;
-  }
+function receive(next:State){
+  if(pending&&(next.lastRequest===pending.id||pending.type==="status")){if(pending.type==="update"&&!next.error)dirty=false;finishRequest(!next.error);}
   render(next);
 }
-function settings():Settings {return {speed:el<HTMLInputElement>("speed").valueAsNumber,mode:el<HTMLSelectElement>("mode").value==="once"?"once":"patrol",smooth:el<HTMLInputElement>("smooth").checked,flip:el<HTMLInputElement>("flip").checked,facing:el<HTMLSelectElement>("facing").value==="left"?"left":"right"};}
-button("create-selected").onclick=()=>void send({type:"create",capture:true});
-button("create-empty").onclick=()=>void send({type:"create",capture:false});
-button("start-all").onclick=()=>void send({type:"startAll"});
-button("stop-all").onclick=()=>void send({type:"stopAll"});
-el("group-list").onclick=event=>{const row=(event.target as HTMLElement).closest<HTMLButtonElement>("[data-group-id]");if(row?.dataset.groupId)void send({type:"select",id:row.dataset.groupId});};
-const actions={capture:"capture",pick:"pick","pick-line":"pickLine","finish-line":"finishLine","undo-line":"undoLine","cancel-pick":"cancelPick","show-route":"showRoute","from-selection":"destinationFromSelection",start:"start",stop:"stop",reset:"reset",remove:"remove"} as const;
-for(const [id,type] of Object.entries(actions)) button(id).onclick=()=>{if(editingGroup)void send({type,id:editingGroup.id});};
-for(const id of ["group-name","speed","mode","smooth","flip","facing"]) el(id).addEventListener("input",()=>{dirty=true;render(state);});
-button("save").onclick=()=>{
-  if(!editingGroup||!el<HTMLInputElement>("speed").reportValidity())return;
-  const name=el<HTMLInputElement>("group-name");name.value=name.value.trim()||"กลุ่มไม่มีชื่อ";
-  void send({type:"update",id:editingGroup.id,name:name.value,settings:settings()});
-};
+async function saveDraft(){
+  if(!dirty)return true;if(!editingGroup||!el<HTMLInputElement>("speed").reportValidity())return false;
+  return send({type:"update",id:editingGroup.id,name:el<HTMLInputElement>("group-name").value.trim()||"กลุ่มไม่มีชื่อ",settings:settings()});
+}
+async function perform(command:Command){
+  if(command.type==="remove")dirty=false;
+  else if(dirty&&!await saveDraft())return;
+  await send(command);
+}
+function changed(){dirty=true;render(state);}
+button("create").onclick=()=>void perform({type:"create"});
+button("start-all").onclick=()=>void perform({type:"startAll"});button("stop-all").onclick=()=>void send({type:"stopAll"});
+el("group-list").onclick=event=>{const row=(event.target as HTMLElement).closest<HTMLButtonElement>("[data-group-id]");if(row?.dataset.groupId)void perform({type:"select",id:row.dataset.groupId});};
+const actions={"pick-line":"pickLine","pick-start":"pickStart","show-route":"showRoute","finish-line":"finishLine","undo-line":"undoLine","cancel-pick":"cancelPick",capture:"capture",reset:"reset",remove:"remove",start:"start",stop:"stop"} as const;
+for(const [id,type]of Object.entries(actions))button(id).onclick=()=>{if(editingGroup)void perform({type,id:editingGroup.id});};
+for(const id of ["group-name","speed","flip","smooth","facing"])el(id).addEventListener("input",changed);
+for(const mode of ["once","patrol"])button(`mode-${mode}`).onclick=()=>{el<HTMLInputElement>("mode").value=mode;changed();};
+for(const [id,delta]of [["slower",-.1],["faster",.1]] as const)button(id).onclick=()=>{const speed=el<HTMLInputElement>("speed"),current=Number.isFinite(speed.valueAsNumber)?speed.valueAsNumber:defaultSettings.speed;speed.value=String(Math.min(20,Math.max(.1,Math.round((current+delta)*10)/10)));changed();};
+button("save").onclick=()=>void saveDraft();
 
 if(OBR.isAvailable){
-  render(state);
-  OBR.onReady(async()=>{
+  render(state);OBR.onReady(async()=>{
     online=true;const connectionId=await OBR.player.getConnectionId();
     const transfers=new Map<string,{parts:Map<number,string>;total:number;created:number}>();
     OBR.broadcast.onMessage(STATE,event=>{
-      if(event.connectionId!==connectionId)return;
-      const p=event.data as StatePacket;
+      if(event.connectionId!==connectionId)return;const p=event.data as StatePacket;
       if(!p||typeof p.transfer!=="string"||typeof p.data!=="string"||!Number.isInteger(p.total)||p.total<1||p.total>10000||!Number.isInteger(p.index)||p.index<0||p.index>=p.total)return;
-      for(const [id,value] of transfers)if(Date.now()-value.created>15000)transfers.delete(id);
-      let transfer=transfers.get(p.transfer);
-      if(!transfer){transfer={parts:new Map(),total:p.total,created:Date.now()};transfers.set(p.transfer,transfer);}
-      if(transfer.total!==p.total)return;
-      transfer.parts.set(p.index,p.data);
-      if(transfer.parts.size===transfer.total){
-        transfers.delete(p.transfer);
-        try {receive(JSON.parse(Array.from({length:p.total},(_,i)=>transfer!.parts.get(i)).join("")) as State);}catch(error){console.error(error);}
-      }
+      for(const [id,t]of transfers)if(Date.now()-t.created>15000)transfers.delete(id);
+      let t=transfers.get(p.transfer);if(!t){t={parts:new Map(),total:p.total,created:Date.now()};transfers.set(p.transfer,t);}
+      if(t.total!==p.total)return;t.parts.set(p.index,p.data);
+      if(t.parts.size===t.total){transfers.delete(p.transfer);try{receive(JSON.parse(Array.from({length:p.total},(_,i)=>t!.parts.get(i)).join("")) as State);}catch(error){console.error(error);}}
     });
-    await send({type:"status"});
-    setTimeout(()=>{if(!state.ready&&!pending)void send({type:"status"});},1500);
+    await send({type:"status"});setTimeout(()=>{if(!state.ready&&!pending)void send({type:"status"});},1500);
   });
 }else{
   el("demo-banner").hidden=false;
-  const preview=new URLSearchParams(location.search).has("preview");
-  const samples:GroupView[]=preview?[
-    {id:"one",name:"ยามหน้าประตู",count:2,names:["Guard A","Guard B"],a:{x:150,y:300},b:{x:1050,y:300},settings:{...defaultSettings},running:true,progress:.42,direction:"outbound",message:"กำลังวนไปกลับ A ↔ B"},
-    {id:"two",name:"ขบวนเกวียน",count:4,names:["Cart","Horse","Scout"],a:{x:300,y:900},b:{x:1500,y:600},settings:{...defaultSettings,speed:.5,flip:false},running:true,progress:.75,direction:"return",message:"กำลังวนไปกลับ"},
-    {id:"three",name:"ลาดตระเวนริมฝั่ง",count:1,names:["Ranger"],a:{x:600,y:750},b:{x:1200,y:450},settings:{...defaultSettings,speed:1},running:false,progress:0,direction:"outbound",message:"พร้อมเริ่ม"}
+  const samples:GroupView[]=new URLSearchParams(location.search).has("preview")?[
+    {id:"guards",name:"ยามหน้าประตู",count:2,names:["Guard","Scout"],route:[{x:150,y:250},{x:250,y:250},{x:250,y:350},{x:350,y:350}],settings:{...defaultSettings},running:false,progress:0,direction:"outbound",message:"LINE พร้อมแล้ว"},
+    {id:"patrol",name:"ลาดตระเวนริมฝั่ง",count:1,names:["Monster"],route:[{x:450,y:150},{x:450,y:350},{x:650,y:350}],settings:{...defaultSettings,speed:1},running:true,progress:.42,direction:"return",message:"กำลังเดิน"}
   ]:[];
   render({...state,groups:samples,selectedId:samples[0]?.id,message:"เปิดผ่าน Owlbear Rodeo เพื่อควบคุม Token"});
 }

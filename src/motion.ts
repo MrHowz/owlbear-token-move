@@ -71,10 +71,13 @@ export class Motion {
   async waitForMaintenance(){await this.renewal;await this.commits;}
 
   async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[]} = {flip:false,facing:"right",resume:false}) {
-    if (!originals.length) throw new Error("กรุณาบันทึกจุด A ก่อน");
-    await this.stop();
+    if (!originals.length) throw new Error("เลือก Token ให้กลุ่มก่อน");
+    const stopped=this.stop(),generation=this.generation;
+    await stopped;
+    if(this.generation!==generation)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
     const fresh = await this.adapter.read(originals.map(i => i.id));
-    if (fresh.length !== originals.length || fresh.some(i => i.locked || i.attachedTo)) throw new Error("วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น กรุณาเลือกจุด A ใหม่");
+    if(this.generation!==generation)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
+    if (fresh.length !== originals.length || fresh.some(i => i.locked || i.attachedTo)) throw new Error("วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น กรุณาเลือก Token ใหม่");
     this.latest = originals.map(o => fresh.find(i => i.id === o.id)!);
     const points=options.waypoints?.length?options.waypoints:[b];
     this.stops=[originals.map(i=>({...i.position})),...points.map(point=>originals.map(i=>({x:i.position.x+point.x-originals[0].position.x,y:i.position.y+point.y-originals[0].position.y})))];
@@ -90,7 +93,9 @@ export class Motion {
     // Validate before opening an interaction.
     durationMs(this.latest[0].position, this.stops[this.targetIndex][0], dpi, speed);
     this.beginLeg(now);
-    this.interaction = await this.adapter.interact(this.latest);
+    const interaction=await this.adapter.interact(this.latest);
+    if(this.generation!==generation){interaction[1]();throw new Error("ยกเลิกการเริ่มเดินแล้ว");}
+    this.interaction = interaction;
     this.started=this.clock?.()??now;
     this.renewed = this.started; this.running = true; this.routeStarted = true;
     this.setProgress(0);
