@@ -1,6 +1,7 @@
 import OBR, {buildCurve, type Item} from "@owlbear-rodeo/sdk";
 import {Groups} from "./groups";
-import {COMMAND, STATE, ID, VERSION, initialState, statePackets, type Command, type CommandMessage, type State, type Point} from "./shared";
+import {OrderedPublisher} from "./publisher";
+import {COMMAND, STATE, ID, VERSION, initialState, statePackets, type Command, type CommandMessage, type State, type Point, type StatePacket} from "./shared";
 
 let state: State = {...initialState};
 let previousTool = "";
@@ -10,6 +11,10 @@ let queue = Promise.resolve();
 let routeItems:string[]=[];
 let routeSignature="";
 let pickNotice:string|undefined;
+let previewPending=false,previewRunning=false;
+const publisher=new OrderedPublisher<StatePacket[]>(async packets=>{
+  for(const packet of packets)await OBR.broadcast.sendMessage(STATE,packet,{destination:"LOCAL"});
+});
 const groups = new Groups({
   read: async ids => {
     const requestedEpoch=epoch; const items=await OBR.scene.items.getItems(ids);
@@ -24,11 +29,22 @@ const groups = new Groups({
       if (value&&!item.locked&&!item.attachedTo) {item.position={...value.position}; item.scale={...value.scale};}
     }));
   }
-});
-async function publish() {
+},()=>performance.now());
+function requestPreview() {
+  previewPending=true;
+  if(previewRunning)return;
+  previewRunning=true;
+  void (async()=>{
+    try {while(previewPending){previewPending=false;await drawRoute();}}
+    catch(error){console.warn("LINE preview",error);}
+    finally{previewRunning=false;}
+  })();
+}
+function publish(updatePreview=true) {
   state.groups=groups.views();
-  await drawRoute().catch(error=>console.warn("LINE preview",error));
-  for (const packet of statePackets(state)) await OBR.broadcast.sendMessage(STATE,packet,{destination:"LOCAL"});
+  const packets=statePackets(state);
+  if(updatePreview)requestPreview();
+  return publisher.publish(packets);
 }
 async function cell(point:Point):Promise<Point> {
   const requestedEpoch=epoch;
@@ -38,14 +54,17 @@ async function cell(point:Point):Promise<Point> {
   return result;
 }
 async function drawRoute() {
+  const drawingEpoch=epoch;
   const g=groups.views().find(g=>g.id===state.selectedId);
   const points=state.gm&&state.ready&&state.routeVisible!==false&&g?.a?[g.a,...(state.pickingId===g.id&&state.pickMode==="line"?(state.draft??[]):g.route??(g.b?[g.b]:[]))]:[];
   const signature=JSON.stringify([epoch,state.selectedId,points]);
   if(signature===routeSignature)return;
   routeSignature="";
   if(routeItems.length){const old=routeItems;routeItems=[];await OBR.scene.local.deleteItems(old);}
+  if(drawingEpoch!==epoch)return;
   if(points.length) {
     const dpi=await OBR.scene.grid.getDpi();
+    if(drawingEpoch!==epoch)return;
     const preview:Item[]=[];
     if(points.length>1)preview.push(buildCurve().points(points).tension(0).strokeColor("#8be6c8").strokeWidth(Math.max(2,dpi*.035)).fillOpacity(0).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name("Token Move LINE — preview").build());
     for(const [index,p] of points.entries()) {
@@ -53,7 +72,9 @@ async function drawRoute() {
       const ring=Array.from({length:12},(_,i)=>({x:p.x+Math.cos(i*Math.PI/6)*radius,y:p.y+Math.sin(i*Math.PI/6)*radius}));
       preview.push(buildCurve().points(ring).closed(true).tension(0).strokeColor(index===0?"#c6deff":"#8be6c8").strokeWidth(Math.max(1,dpi*.02)).fillColor("#8be6c8").fillOpacity(.35).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name(`LINE ${index===0?"A":index}`).build());
     }
-    await OBR.scene.local.addItems(preview);routeItems=preview.map(i=>i.id);
+    await OBR.scene.local.addItems(preview);
+    if(drawingEpoch!==epoch){await OBR.scene.local.deleteItems(preview.map(i=>i.id));return;}
+    routeItems=preview.map(i=>i.id);
   }
   routeSignature=signature;
 }
@@ -232,32 +253,36 @@ OBR.onReady(async()=>{
     });
     OBR.scene.onReadyChange(ready=>{
       const nextEpoch=++epoch;
+      state.ready=false;
+      // Scene cancellation must also bypass slow commands or status acknowledgements.
+      void groups.stopAll(false).catch(console.error);
       enqueue(()=>loadScene(ready),nextEpoch);
     });
-    OBR.player.onChange(player=>enqueue(async()=>{
+    OBR.player.onChange(player=>{
       const gm=player.role==="GM";
-      if(gm!==state.gm) {
-        state.gm=gm;
-        if(!gm) {await groups.stopAll(false);await cancelPick();state.message="เฉพาะ GM เท่านั้นที่ควบคุมได้";}
+      if(gm===state.gm)return;
+      state.gm=gm;
+      if(!gm)void groups.stopAll(false).catch(console.error);
+      enqueue(async()=>{
+        if(state.gm!==gm)return;
+        if(!gm) {await cancelPick();state.message="เฉพาะ GM เท่านั้นที่ควบคุมได้";}
         else {await loadScene(await OBR.scene.isReady());return;}
         await publish();
-      }
-    }));
+      });
+    });
     OBR.scene.items.onChange(items=>{if(groups.running) enqueue(async()=>{await groups.checkItems(items);});});
-    let pending=false,lastPublish=0;
+    let lastPublish=0;
     setInterval(()=>{
-      if(!groups.running||pending)return;
-      pending=true;
-      // Always clear pending, even when a queued tick belongs to the old scene.
-      const tickEpoch=epoch;
-      queue=queue.then(async()=>{
-        try {
-          if(tickEpoch!==epoch)return;
-          await groups.tick(performance.now());
-          if(performance.now()-lastPublish>300||!groups.running){lastPublish=performance.now();await publish();}
-        } finally {pending=false;}
-      }).catch(console.error);
-    },33);
+      if(!groups.running||!state.ready||!state.gm)return;
+      const now=performance.now();
+      // Position updates execute immediately. Network checkpoints/status never own this clock.
+      const frame=groups.tick(now);void frame.catch(console.error);
+      if(now-lastPublish>300&&!publisher.busy){
+        lastPublish=now;
+        enqueue(async()=>{if(!publisher.busy)void publish(false).catch(console.error);});
+      }
+      if(!groups.running)void frame.then(()=>enqueue(async()=>{void publish(false).catch(console.error);})).catch(console.error);
+    },1000/60);
     console.info(`Token Move ${VERSION}`);
     await loadScene(await OBR.scene.isReady());
   } catch(error){console.error(error);state.message="เริ่มระบบไม่สำเร็จ กรุณารีโหลดห้อง";await publish().catch(console.error);}

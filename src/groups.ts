@@ -5,7 +5,8 @@ import {defaultSettings, finitePoint, validSettings, validateConfig, type Anchor
 interface Runtime {config: GroupConfig; motor: Motion; message: string}
 export class Groups {
   private entries = new Map<string, Runtime>();
-  constructor(private adapter: MotionAdapter) {}
+  constructor(private adapter: MotionAdapter,private clock?:()=>number) {}
+  private makeMotor(){return new Motion(this.adapter,this.clock);}
   private get(id: string) {
     const entry = this.entries.get(id);
     if (!entry) throw new Error("ไม่พบกลุ่มนี้ กรุณาเลือกกลุ่มใหม่");
@@ -17,7 +18,7 @@ export class Groups {
   create(id: string, items: Item[] = []) {
     if (!id || this.has(id)) throw new Error("รหัสกลุ่มซ้ำ");
     const config: GroupConfig = {id, name: `กลุ่ม ${this.size + 1}`, anchors: [], settings: {...defaultSettings}};
-    this.entries.set(id, {config, motor: new Motion(this.adapter), message: "เลือก Token แล้วบันทึก A"});
+    this.entries.set(id, {config, motor: this.makeMotor(), message: "เลือก Token แล้วบันทึก A"});
     try {if (items.length) this.capture(id, items);} catch (error) {this.entries.delete(id); throw error;}
   }
   private requireStopped(e: Runtime) {if (e.motor.running) throw new Error("หยุดกลุ่มนี้ก่อนแก้เส้นทางหรือการตั้งค่า");}
@@ -33,7 +34,7 @@ export class Groups {
     const anchors = this.anchors(items);
     const busy = [...this.entries.values()].find(other => other.motor.running && other.config.anchors.some(a => anchors.some(b => a.id === b.id)));
     if (busy) throw new Error(`Token นี้กำลังเดินใน ${busy.config.name} กรุณาหยุดกลุ่มนั้นก่อน`);
-    e.config.anchors = anchors; e.config.b = undefined; e.config.route = undefined; e.motor = new Motion(this.adapter); e.message = "บันทึก A แล้ว • เลือกช่อง B หรือสร้าง LINE";
+    e.config.anchors = anchors; e.config.b = undefined; e.config.route = undefined; e.motor = this.makeMotor(); e.message = "บันทึก A แล้ว • เลือกช่อง B หรือสร้าง LINE";
   }
   update(id: string, name: string, settings: Settings) {
     const e = this.get(id); this.requireStopped(e);
@@ -47,7 +48,7 @@ export class Groups {
     if (!finitePoint(point)) throw new Error("พิกัด B ไม่ถูกต้อง");
     const a = e.config.anchors[0].position;
     if (Math.hypot(point.x-a.x, point.y-a.y) < .01) throw new Error("เลือกจุด B ให้ต่างจาก A");
-    e.config.b = {...point}; e.config.route = undefined; e.motor = new Motion(this.adapter); e.message = "พร้อมเดิน • ตั้งค่าแล้วกดเริ่มกลุ่มนี้";
+    e.config.b = {...point}; e.config.route = undefined; e.motor = this.makeMotor(); e.message = "พร้อมเดิน • ตั้งค่าแล้วกดเริ่มกลุ่มนี้";
   }
   setPath(id: string, points: Point[]) {
     const e=this.get(id); this.requireStopped(e);
@@ -57,11 +58,11 @@ export class Groups {
     const route: Point[]=[];
     for(const point of points) if(Math.hypot(point.x-previous.x,point.y-previous.y)>.01){route.push({...point});previous=point;}
     if(!route.length) throw new Error("เลือกช่องเดินที่ต่างจาก A อย่างน้อย 1 ช่อง");
-    e.config.route=route; e.config.b={...route[route.length-1]}; e.motor=new Motion(this.adapter); e.message=`บันทึก LINE ${route.length} จุดแล้ว • พร้อมเดิน`;
+    e.config.route=route; e.config.b={...route[route.length-1]}; e.motor=this.makeMotor(); e.message=`บันทึก LINE ${route.length} จุดแล้ว • พร้อมเดิน`;
   }
   clearDestination(id:string) {
     const e=this.get(id);this.requireStopped(e);
-    e.config.b=undefined;e.config.route=undefined;e.motor=new Motion(this.adapter);e.message="A และ B อยู่ช่องเดียวกัน • เลือกช่อง B ใหม่";
+    e.config.b=undefined;e.config.route=undefined;e.motor=this.makeMotor();e.message="A และ B อยู่ช่องเดียวกัน • เลือกช่อง B ใหม่";
   }
   async start(id: string, dpi: number, now: number) {
     const e = this.get(id);
@@ -75,7 +76,7 @@ export class Groups {
     e.message = s.mode === "patrol" ? "กำลังวนไปกลับ A ↔ B" : "กำลังเดินไป B";
   }
   async stop(id: string, commit = true) {const e=this.get(id); await e.motor.stop(commit); e.message="หยุดแล้ว • กดเริ่มเพื่อเดินต่อ";}
-  async stopAll(commit = true) {for (const id of this.entries.keys()) await this.stop(id,commit);}
+  async stopAll(commit = true) {await Promise.all([...this.entries.keys()].map(id=>this.stop(id,commit)));}
   async startAll(dpi: number, now: number) {
     const errors: string[] = [];
     for (const [id,e] of this.entries) {
@@ -96,16 +97,25 @@ export class Groups {
       const a=e.config.anchors.find(a=>a.id===i.id)!;
       return {...i, position:{...a.position}, scale:{...a.scale}};
     }));
-    e.motor=new Motion(this.adapter); e.message="กลับ A และคืนการ Flip เดิมแล้ว";
+    e.motor=this.makeMotor(); e.message="กลับ A และคืนการ Flip เดิมแล้ว";
   }
   async remove(id: string) {await this.get(id).motor.stop(); this.entries.delete(id);}
   async clear() {await this.stopAll(false); this.entries.clear();}
   async tick(now: number) {
+    const updates:Promise<void>[]=[];
     for (const e of this.entries.values()) {
       if (!e.motor.running) continue;
-      try {await e.motor.tick(now); if (!e.motor.running) e.message="ถึง B แล้ว • กลับ A เพื่อเริ่มรอบใหม่";}
-      catch(error) {await e.motor.stop(false); e.message=error instanceof Error?error.message:"หยุดเพราะเกิดข้อผิดพลาด";}
+      const motor=e.motor;
+      const update=motor.tick(now);const revision=motor.revision;
+      // Every motor receives this frame before awaiting any group's final persistence.
+      updates.push(update.then(()=>{
+        if(e.motor===motor&&motor.revision===revision&&!motor.running)e.message="ถึง B แล้ว • กลับ A เพื่อเริ่มรอบใหม่";
+      }).catch(async error=>{
+        if(e.motor!==motor||motor.revision!==revision)return;
+        await motor.stop(false);e.message=error instanceof Error?error.message:"หยุดเพราะเกิดข้อผิดพลาด";
+      }));
     }
+    await Promise.all(updates);
   }
   async checkItems(items: Item[]) {
     const byId=new Map(items.map(i=>[i.id,i]));
@@ -119,7 +129,7 @@ export class Groups {
   hydrate(configs: unknown) {
     if (!Array.isArray(configs)) return;
     for (const config of configs) if (validateConfig(config) && !this.has(config.id)) {
-      this.entries.set(config.id,{config:structuredClone(config),motor:new Motion(this.adapter),message:"โหลดเส้นทางแล้ว • พร้อมเริ่มเมื่อคุณสั่ง"});
+      this.entries.set(config.id,{config:structuredClone(config),motor:this.makeMotor(),message:"โหลดเส้นทางแล้ว • พร้อมเริ่มเมื่อคุณสั่ง"});
     }
   }
   views(): GroupView[] {

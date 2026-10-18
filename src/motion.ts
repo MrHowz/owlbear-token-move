@@ -7,7 +7,7 @@ export interface MotionAdapter {
   interact(items: Item[]): Promise<Interaction>;
   commit(items: Item[]): Promise<void>;
 }
-/** All public methods are serialized by the background queue. */
+/** Frame updates stay synchronous until a final commit; maintenance never blocks frames. */
 export class Motion {
   private interaction?: Interaction;
   private latest: Item[] = [];
@@ -27,11 +27,48 @@ export class Motion {
   private facing: Facing = "right";
   private scales: Point[] = [];
   private routeStarted = false;
+  private generation=0;
+  private renewal?:Promise<void>;
+  private replacement?:Interaction;
+  private commits:Promise<void>=Promise.resolve();
+  private maintenanceError?:Error;
+  get revision(){return this.generation;}
   get direction(): "outbound" | "return" {return this.goingHome ? "return" : "outbound";}
   get waypointIndex() {return this.targetIndex;}
   running = false;
   progress = 0;
-  constructor(private adapter: MotionAdapter) {}
+  constructor(private adapter: MotionAdapter,private clock?:()=>number) {}
+
+  private persist(items:Item[],generation:number) {
+    const snapshot=structuredClone(items);
+    const write=this.commits.catch(()=>{}).then(async()=>{
+      if(this.generation===generation)await this.adapter.commit(snapshot);
+    });
+    this.commits=write;return write;
+  }
+  private renew() {
+    const generation=this.generation;
+    const current=()=>this.running&&this.generation===generation;
+    const task=(async()=>{
+      const fresh=await this.adapter.read(this.latest.map(i=>i.id));
+      if(!current())return;
+      if(fresh.length!==this.latest.length||fresh.some(i=>i.locked||i.attachedTo))throw new Error("หยุดแล้ว: วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น");
+      // Keep the old interaction moving throughout checkpoint and replacement RPCs.
+      await this.persist(this.latest,generation);
+      if(!current())return;
+      const byId=new Map(fresh.map(i=>[i.id,i]));
+      const base=this.latest.map(i=>({...byId.get(i.id)!,position:{...i.position},scale:{...i.scale}}));
+      const next=await this.adapter.interact(base);
+      if(!current()){next[1]();return;}
+      this.replacement=next;
+    })().catch(error=>{
+      if(current())this.maintenanceError=error instanceof Error?error:new Error("ต่ออายุการเคลื่อนที่ไม่สำเร็จ");
+    });
+    this.renewal=task;
+    void task.finally(()=>{if(this.renewal===task)this.renewal=undefined;});
+  }
+  /** Await I/O only for lifecycle coordination or diagnostics, never for frame scheduling. */
+  async waitForMaintenance(){await this.renewal;await this.commits;}
 
   async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[]} = {flip:false,facing:"right",resume:false}) {
     if (!originals.length) throw new Error("กรุณาบันทึกจุด A ก่อน");
@@ -54,7 +91,8 @@ export class Motion {
     durationMs(this.latest[0].position, this.stops[this.targetIndex][0], dpi, speed);
     this.beginLeg(now);
     this.interaction = await this.adapter.interact(this.latest);
-    this.renewed = now; this.running = true; this.routeStarted = true;
+    this.started=this.clock?.()??now;
+    this.renewed = this.started; this.running = true; this.routeStarted = true;
     this.setProgress(0);
     this.apply(0);
   }
@@ -81,17 +119,14 @@ export class Motion {
     this.progress=((this.goingHome?legs-1-this.targetIndex:this.targetIndex-1)+t)/legs;
   }
   async tick(now: number) {
+    if(this.maintenanceError){const error=this.maintenanceError;this.maintenanceError=undefined;throw error;}
     if (!this.running || !this.interaction) return;
-    // SDK interactions expire at 30 seconds; commit and renew before that limit.
-    if (now - this.renewed >= 20_000) {
-      const fresh = await this.adapter.read(this.latest.map(i => i.id));
-      if (fresh.length !== this.latest.length || fresh.some(i => i.locked || i.attachedTo)) throw new Error("หยุดแล้ว: วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น");
-      this.interaction[1](); this.interaction = undefined;
-      await this.adapter.commit(this.latest);
-      // getItems need not return items in the requested order.
-      const ordered = this.latest.map(item => ({...fresh.find(i => i.id === item.id)!, position: {...item.position}, scale: {...item.scale}}));
-      this.interaction = await this.adapter.interact(ordered); this.renewed = now;
+    if(this.replacement) {
+      const next=this.replacement;this.replacement=undefined;
+      this.interaction[1]();this.interaction=next;this.renewed=now;
     }
+    // Start early; the live interaction continues while the asynchronous replacement prepares.
+    if(now-this.renewed>=20_000&&!this.renewal&&!this.replacement)this.renew();
     // Consume overshoot so short cells and corners do not reduce the chosen speed.
     for(let crossed=0;crossed<1000;crossed++) {
       const t=Math.min(1,Math.max(0,(now-this.started)/this.duration));
@@ -115,8 +150,13 @@ export class Motion {
   }
   async stop(commit = true) {
     const wasRunning = this.running;
+    if(commit&&!wasRunning&&!this.interaction&&!this.replacement){await this.commits;return;}
     this.running = false;
+    const generation=++this.generation;
+    this.maintenanceError=undefined;
     this.interaction?.[1](); this.interaction = undefined;
-    if (commit && wasRunning) await this.adapter.commit(this.latest);
+    this.replacement?.[1]();this.replacement=undefined;
+    this.renewal=undefined;
+    if (commit && wasRunning) await this.persist(this.latest,generation);
   }
 }

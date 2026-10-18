@@ -110,3 +110,22 @@ test("clearing a legacy same-cell destination keeps group members and A intact",
   const anchors=g.export()[0].anchors;g.clearDestination("a");
   assert.deepEqual(g.export()[0].anchors,anchors);assert.equal(g.views()[0].b,undefined);assert.equal(g.views()[0].route,undefined);assert.equal(g.views()[0].count,2);
 });
+
+test("a slow final commit in one group does not stall or rewind another group's frames",{timeout:2000},async()=>{
+  const f=fixture(),g=f.groups;
+  g.create("alpha",f.items(["one"]));g.setB("alpha",{x:200,y:0});
+  g.update("alpha","one way",{...defaultSettings,mode:"once",speed:2});
+  g.create("beta",f.items(["three"]));g.setB("beta",{x:400,y:200});
+  g.update("beta","still moving",{...defaultSettings,speed:1});
+  let release!:()=>void,started!:()=>void;
+  const blocked=new Promise<void>(resolve=>{release=resolve;});
+  const committing=new Promise<void>(resolve=>{started=resolve;});
+  const commit=f.adapter.commit;
+  f.adapter.commit=async items=>{if(items.some(i=>i.id==="one")){started();await blocked;}await commit(items);};
+  await g.startAll(100,0);
+  const frame=g.tick(1000);await committing;
+  assert.equal(g.views()[0].running,false);assert.equal(f.active.get("three")!.position.x,100);
+  await g.tick(1100);assert.ok(Math.abs(f.active.get("three")!.position.x-110)<1e-7);
+  release();await frame;
+  assert.ok(Math.abs(f.active.get("three")!.position.x-110)<1e-7);assert.equal(g.views()[1].running,true);
+});

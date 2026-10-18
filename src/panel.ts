@@ -3,7 +3,7 @@ import {COMMAND, STATE, VERSION, initialState, defaultSettings, type Command, ty
 import "./style.css";
 
 document.querySelector("#app")!.innerHTML=`
-<header><div class="brand">↗</div><div><h1>Token Move <span>2.1</span></h1><p>ล็อคช่องกริด · LINE ทีละช่อง · หลายกลุ่ม</p></div><span id="connection" class="badge">เชื่อมต่อ…</span></header>
+<header><div class="brand">↗</div><div><h1>Token Move <span>${VERSION}</span></h1><p>ล็อคช่องกริด · LINE ทีละช่อง · หลายกลุ่ม</p></div><span id="connection" class="badge">เชื่อมต่อ…</span></header>
 <div id="demo-banner" hidden>ตัวอย่างหน้าควบคุม • ใช้งานจริงผ่าน Owlbear Rodeo</div>
 <section class="fleet"><div class="section-heading"><h2>กลุ่มการเคลื่อนที่ <span id="group-count">0</span></h2><span id="running-count">0 กำลังเดิน</span></div>
 <div class="add-row"><button id="create-selected" class="primary">＋ เพิ่มกลุ่มจาก Token ที่เลือก</button><button id="create-empty" class="secondary" title="เพิ่มกลุ่มว่าง" aria-label="เพิ่มกลุ่มว่าง">＋</button></div>
@@ -41,6 +41,7 @@ const button=(id:string)=>el<HTMLButtonElement>(id);
 let state:State={...initialState}; let online=false, editorId:string|undefined, dirty=false;
 let pending:{id:string;type:Command["type"];timer:ReturnType<typeof setTimeout>;resolve:()=>void}|undefined;
 let editingGroup:GroupView|undefined;
+let cardIds="",routeNodesKey="";
 const format=(point?:{x:number;y:number})=>point?`${Math.round(point.x)}, ${Math.round(point.y)}`:"—";
 function setFields(g:GroupView) {
   el<HTMLInputElement>("group-name").value=g.name; el<HTMLInputElement>("speed").value=String(g.settings.speed);
@@ -56,19 +57,29 @@ function render(next:State) {
   el("group-count").textContent=String(state.groups.length);
   el("running-count").textContent=`${state.groups.filter(g=>g.running).length} กำลังเดิน`;
   const list=el("group-list");
-  // Preserve list scroll while progress updates arrive.
-  const scroll=list.scrollTop;
-  list.replaceChildren(...state.groups.map(group=>{
-    const row=document.createElement("button");row.className=`group-card ${group.id===g?.id?"selected":""}`;row.dataset.groupId=group.id;
-    row.setAttribute("aria-pressed",String(group.id===g?.id));
-    const dot=document.createElement("span");dot.className=`dot ${group.running?"live":""}`;
-    const body=document.createElement("span");body.className="group-card-body";
-    const name=document.createElement("strong");name.textContent=group.name;
-    const info=document.createElement("small");info.textContent=`${group.count} Token · ${group.route?`LINE ${group.route.length}`:"ตรง"} · ${group.settings.mode==="patrol"?"Loop ↔":"เที่ยวเดียว →"}${group.settings.flip?" · Flip":""}`;
-    body.append(name,info);
-    const tag=document.createElement("span");tag.className="card-state";tag.textContent=group.running?(group.direction==="return"?"B → A":"A → B"):(group.b?"พร้อม":"ตั้งเส้นทาง");
-    row.append(dot,body,tag);row.disabled=!online||!!pending;return row;
-  })); list.scrollTop=scroll;
+  // Keep controls and route nodes mounted while progress changes; do not rebuild hundreds
+  // of DOM nodes every status update on the same browser that renders the scene.
+  const ids=JSON.stringify(state.groups.map(group=>group.id));
+  if(ids!==cardIds){
+    const scroll=list.scrollTop;cardIds=ids;
+    list.replaceChildren(...state.groups.map(group=>{
+      const row=document.createElement("button");row.dataset.groupId=group.id;
+      const dot=document.createElement("span"),body=document.createElement("span"),tag=document.createElement("span");
+      body.className="group-card-body";tag.className="card-state";
+      body.append(document.createElement("strong"),document.createElement("small"));
+      row.append(dot,body,tag);return row;
+    }));list.scrollTop=scroll;
+  }
+  state.groups.forEach((group,index)=>{
+    const row=list.children[index] as HTMLButtonElement;
+    row.className=`group-card ${group.id===g?.id?"selected":""}`;row.setAttribute("aria-pressed",String(group.id===g?.id));
+    row.children[0].className=`dot ${group.running?"live":""}`;
+    const info=`${group.count} Token · ${group.route?`LINE ${group.route.length}`:"ตรง"} · ${group.settings.mode==="patrol"?"Loop ↔":"เที่ยวเดียว →"}${group.settings.flip?" · Flip":""}`;
+    const tag=group.running?(group.direction==="return"?"B → A":"A → B"):(group.b?"พร้อม":"ตั้งเส้นทาง");
+    const values:[[Element,string],[Element,string],[Element,string]]=[[row.children[1].children[0],group.name],[row.children[1].children[1],info],[row.children[2],tag]];
+    for(const [node,value] of values)if(node.textContent!==value)node.textContent=value;
+    row.disabled=!online||!!pending;
+  });
   el("empty").hidden=!!g;el("editor").hidden=!g;
   const unavailable=!online||!state.ready||!state.gm||!!pending;
   for(const id of ["create-selected","create-empty"]) button(id).disabled=unavailable||!!state.pickingId;
@@ -91,9 +102,13 @@ function render(next:State) {
   button("show-route").textContent=state.routeVisible===false?"แสดงเส้นทาง":"ซ่อนเส้นทาง";
   el("route-details").hidden=!route.length;
   el("route-summary").textContent=`ลำดับจุดเดิน ${route.length} จุด (กึ่งกลางช่อง)`;
-  el("route-nodes").replaceChildren(...route.map((p,index)=>{
-    const li=document.createElement("li");li.textContent=`${format(p)}${index===route.length-1?" · B":""}`;return li;
-  }));
+  const nodesKey=JSON.stringify([g.id,route]);
+  if(nodesKey!==routeNodesKey){
+    routeNodesKey=nodesKey;
+    el("route-nodes").replaceChildren(...route.map((p,index)=>{
+      const li=document.createElement("li");li.textContent=`${format(p)}${index===route.length-1?" · B":""}`;return li;
+    }));
+  }
   const locked=unavailable||g.running||!!state.pickingId;
   for(const id of ["group-name","speed","mode","smooth","flip","facing"]) (el(id) as HTMLInputElement).disabled=locked;
   el<HTMLSelectElement>("facing").disabled=locked||!el<HTMLInputElement>("flip").checked;
