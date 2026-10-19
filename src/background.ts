@@ -26,7 +26,7 @@ const groups = new Groups({
     const byId=new Map(items.map(i=>[i.id,i]));
     return OBR.scene.items.updateItems(items.map(i=>i.id),draft=>draft.forEach(item=>{
       const value=byId.get(item.id);
-      if (value&&!item.locked&&!item.attachedTo) {item.position={...value.position}; item.scale={...value.scale};}
+      if (value&&!item.locked&&!item.attachedTo) {item.position={...value.position}; item.scale={...value.scale};if(Number.isFinite(value.rotation))item.rotation=value.rotation;}
     }));
   }
 },()=>performance.now());
@@ -56,7 +56,7 @@ async function cell(point:Point):Promise<Point> {
 async function drawRoute() {
   const drawingEpoch=epoch;
   const g=groups.views().find(g=>g.id===state.selectedId);
-  const points=state.gm&&state.ready&&state.routeVisible!==false&&g?(state.pickingId===g.id&&state.pickMode==="line"?(state.draft??[]):g.route??[]):[];
+  const points=state.gm&&state.ready&&state.routeVisible!==false&&g?(state.pickingId===g.id&&state.pickMode==="line"?(state.draft??[]):g.settings.movement==="stationary"?[]:g.route??[]):[];
   const signature=JSON.stringify([epoch,state.selectedId,points]);
   if(signature===routeSignature)return;
   routeSignature="";
@@ -155,7 +155,7 @@ async function handle(command:Command) {
   } else if(command.type==="startAll") {
     if(state.pickingId) await cancelPick();
     const errors=await groups.startAll(await OBR.scene.grid.getDpi(),performance.now());
-    state.message=errors.length?errors.join(" • "):"เริ่มทุกกลุ่มที่มี LINE แล้ว";
+    state.message=errors.length?errors.join(" • "):"เริ่มทุกกลุ่มที่พร้อมแล้ว";
   } else if("id" in command) {
     if(!groups.has(command.id)) throw new Error("ไม่พบกลุ่มนี้");
     state.selectedId=command.id;
@@ -188,11 +188,11 @@ async function handle(command:Command) {
       state.routeVisible=state.routeVisible===false;state.message=state.routeVisible?"แสดงเส้นทางเฉพาะคุณ":"ซ่อนเส้นทางแล้ว";
     } else if(command.type==="start") {
       if(state.pickingId) await cancelPick();
-      await groups.start(command.id,await OBR.scene.grid.getDpi(),performance.now()); state.message="เริ่มเดินกลุ่มนี้แล้ว";
+      await groups.start(command.id,await OBR.scene.grid.getDpi(),performance.now()); state.message="เริ่มกลุ่มนี้แล้ว";
     } else if(command.type==="stop") {
       await groups.stop(command.id); if(state.pickingId===command.id) await cancelPick(); state.message="หยุดกลุ่มนี้แล้ว";
     } else if(command.type==="reset") {
-      if(state.pickingId===command.id) await cancelPick(); await groups.reset(command.id); state.message="วางที่ช่องเริ่มของ LINE แล้ว";
+      if(state.pickingId===command.id) await cancelPick(); await groups.reset(command.id); state.message="คืนตำแหน่ง/ท่าเริ่มแล้ว";
     } else if(command.type==="remove") {
       if(state.pickingId===command.id) await cancelPick(); await groups.remove(command.id);
       state.selectedId=groups.views()[0]?.id; state.message="ลบกลุ่มแล้ว • Token ยังอยู่บนแผนที่"; await save();

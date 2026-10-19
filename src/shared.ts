@@ -3,9 +3,12 @@ export const COMMAND = `${ID}/command`;
 export const STATE = `${ID}/state`;
 export type Point = {x: number; y: number};
 export type Mode = "once" | "patrol";
-export const VERSION = "2.3.0";
+export const VERSION = "2.4.0";
 export type Facing = "right" | "left";
-export interface Settings {speed: number; mode: Mode; smooth: boolean; flip: boolean; facing: Facing}
+export type Movement = "line" | "stationary";
+export type Effect = "none" | "shake" | "wiggle";
+// Optional additions keep existing version-3 scene data and old command senders compatible.
+export interface Settings {speed: number; mode: Mode; smooth: boolean; flip: boolean; facing: Facing; movement?: Movement; effect?: Effect; shakeDistance?: number; wiggleAngle?: number; effectSpeed?: number}
 export interface Anchor {id: string; name: string; type: string; position: Point; scale: Point}
 export interface GroupConfig {id: string; name: string; anchors: Anchor[]; route?: Point[]; settings: Settings}
 export interface GroupView {id: string; name: string; count: number; names: string[]; route?: Point[]; waypointIndex?: number; settings: Settings; running: boolean; progress: number; direction: "outbound" | "return"; message: string}
@@ -16,7 +19,8 @@ export type Command =
   | {type: "select" | "capture" | "pickStart" | "pickLine" | "finishLine" | "undoLine" | "cancelPick" | "showRoute" | "stop" | "reset" | "remove" | "start"; id: string}
   | {type: "update"; id: string; name: string; settings: Settings};
 export interface CommandMessage {request: string; command: Command}
-export const defaultSettings: Settings = {speed: 2, mode: "patrol", smooth: false, flip: true, facing: "right"};
+export const defaultSettings: Settings = {speed: 2, mode: "patrol", smooth: false, flip: true, facing: "right", movement:"line", effect:"none", shakeDistance:.04, wiggleAngle:8, effectSpeed:1};
+export function normalizedSettings(s:Settings){return {...s,movement:s.movement??"line",effect:s.effect??"none",shakeDistance:s.shakeDistance??.04,wiggleAngle:s.wiggleAngle??8,effectSpeed:s.effectSpeed??1};}
 export const initialState: State = {version: VERSION, ready: false, gm: false, groups: [], message: "กำลังเชื่อมต่อ Owlbear Rodeo…"};
 export function positionAt(a: Point, b: Point, t: number, smooth: boolean): Point {
   const p = Math.max(0, Math.min(1, t));
@@ -28,7 +32,8 @@ export function finitePoint(value: unknown): value is Point {
   return !!p && Number.isFinite(p.x) && Number.isFinite(p.y);
 }
 export function validSettings(s: Settings): boolean {
-  return !!s && Number.isFinite(s.speed) && s.speed >= .1 && s.speed <= 20 && ["once", "patrol"].includes(s.mode) && typeof s.smooth === "boolean" && typeof s.flip === "boolean" && ["left", "right"].includes(s.facing);
+  const range=(n:number|undefined,min:number,max:number)=>n===undefined||(Number.isFinite(n)&&n>=min&&n<=max);
+  return !!s && Number.isFinite(s.speed) && s.speed >= .1 && s.speed <= 20 && ["once", "patrol"].includes(s.mode) && typeof s.smooth === "boolean" && typeof s.flip === "boolean" && ["left", "right"].includes(s.facing) && (s.movement===undefined||["line","stationary"].includes(s.movement)) && (s.effect===undefined||["none","shake","wiggle"].includes(s.effect)) && range(s.shakeDistance,.005,.25) && range(s.wiggleAngle,1,30) && range(s.effectSpeed,.25,3);
 }
 export function validateConfig(value: unknown): value is GroupConfig {
   const g = value as GroupConfig | null;

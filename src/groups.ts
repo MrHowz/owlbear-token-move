@@ -1,6 +1,6 @@
 import type {Item} from "@owlbear-rodeo/sdk";
 import {Motion, type MotionAdapter} from "./motion";
-import {defaultSettings, finitePoint, validSettings, validateConfig, type Anchor, type GroupConfig, type GroupView, type Point, type Settings} from "./shared";
+import {defaultSettings, normalizedSettings, finitePoint, validSettings, validateConfig, type Anchor, type GroupConfig, type GroupView, type Point, type Settings} from "./shared";
 
 interface Runtime {config:GroupConfig;motor:Motion;message:string;needsStart:boolean;settling?:Promise<void>}
 export class Groups {
@@ -36,8 +36,10 @@ export class Groups {
   }
   update(id:string,name:string,settings:Settings){
     const e=this.get(id);this.requireStopped(e);
-    if(!validSettings(settings))throw new Error("ความเร็วต้องอยู่ระหว่าง 0.1–20 ช่อง/วินาที");
-    e.config.name=name.trim().slice(0,80)||"กลุ่มไม่มีชื่อ";e.config.settings={...settings};e.message="บันทึกการตั้งค่าแล้ว";
+    if(!validSettings(settings))throw new Error("ตรวจความเร็ว 0.1–20 ช่อง/วิ ระยะสั่น 0.005–0.25 ช่อง องศา 1–30 และจังหวะ 0.25–3 เท่า");
+    const next=normalizedSettings(settings);
+    if(next.movement!==(e.config.settings.movement??"line")){e.motor=this.makeMotor();e.needsStart=true;}
+    e.config.name=name.trim().slice(0,80)||"กลุ่มไม่มีชื่อ";e.config.settings=next;e.message="บันทึกการตั้งค่าแล้ว";
   }
   setPath(id:string,points:Point[]){
     const e=this.get(id);this.requireStopped(e);
@@ -70,25 +72,34 @@ export class Groups {
     const previous=e.motor,revision=previous.revision;
     await e.settling;
     if(e.motor!==previous||previous.revision!==revision)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
-    this.assertAvailable(e);const anchors=this.lineAnchors(e),route=e.config.route!,s=e.config.settings;
+    this.assertAvailable(e);const s=normalizedSettings(e.config.settings);
+    if(s.movement==="stationary"){
+      if(s.effect==="none")throw new Error("เลือกเอฟเฟกต์สั่นหรือดุ๊กดิ๊กสำหรับโหมดอยู่กับที่");
+      if(!e.config.anchors.length)throw new Error("เลือก Token ให้กลุ่มก่อน");
+      await e.motor.start(e.config.anchors,e.config.anchors[0].position,dpi,s.speed,true,false,now,{flip:false,facing:s.facing,resume:false,stationary:true,effect:s});
+      e.message=s.effect==="shake"?"กำลังสั่นอยู่กับที่":"กำลังดุ๊กดิ๊กอยู่กับที่";return;
+    }
+    const anchors=this.lineAnchors(e),route=e.config.route!;
     if(e.needsStart||(s.mode==="once"&&e.motor.progress>=1)){
       await this.place(e);
       if(e.motor!==previous||previous.revision!==revision)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
       e.motor=this.makeMotor();
     }
-    await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1)});
+    await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1),effect:s});
     e.needsStart=false;e.message=s.mode==="patrol"?"กำลังเดินวนตาม LINE":"กำลังเดินตาม LINE";
   }
   async stop(id:string,commit=true){const e=this.get(id);await e.motor.stop(commit);e.message="หยุดแล้ว • กดเดินต่อได้";}
   async stopAll(commit=true){await Promise.all([...this.entries.keys()].map(id=>this.stop(id,commit)));}
   async startAll(dpi:number,now:number){
     const errors:string[]=[];
-    for(const [id,e]of this.entries){if(!e.config.route||!e.config.anchors.length||e.motor.running)continue;
+    for(const [id,e]of this.entries){const s=normalizedSettings(e.config.settings);if(!(s.movement==="stationary"?s.effect!=="none":e.config.route)||!e.config.anchors.length||e.motor.running)continue;
       try{await this.start(id,dpi,now);}catch(error){e.message=error instanceof Error?error.message:"เริ่มไม่สำเร็จ";errors.push(`${e.config.name}: ${e.message}`);}}
     return errors;
   }
   async reset(id:string){
-    const e=this.get(id);this.assertAvailable(e);this.lineAnchors(e);await e.settling;await e.motor.stop();await this.place(e);
+    const e=this.get(id);this.assertAvailable(e);
+    if(e.config.settings.movement==="stationary"){await e.motor.stop();e.motor=this.makeMotor();e.message="คืนท่าเดิมแล้ว";return;}
+    this.lineAnchors(e);await e.settling;await e.motor.stop();await this.place(e);
     e.motor=this.makeMotor();e.needsStart=false;e.message="วางที่ช่องเริ่มของ LINE แล้ว";
   }
   async remove(id:string){await this.get(id).motor.stop();this.entries.delete(id);}
@@ -125,7 +136,7 @@ export class Groups {
         const route=points?.filter((p,i)=>i===0||Math.hypot(p.x-points[i-1].x,p.y-points[i-1].y)>.01);
         candidate={id:old.id,name:old.name,anchors:old.anchors,settings:old.settings,route:route&&route.length>=2?route:undefined};
       }
-      if(validateConfig(candidate)&&!this.has(candidate.id))this.entries.set(candidate.id,{config:structuredClone(candidate),motor:this.makeMotor(),message:candidate.route?"LINE พร้อมแล้ว • กดเริ่มเมื่อพร้อม":"สร้าง LINE เพื่อเลือกช่องเริ่ม",needsStart:true});
+      if(validateConfig(candidate)&&!this.has(candidate.id))this.entries.set(candidate.id,{config:{...structuredClone(candidate),settings:normalizedSettings(candidate.settings)},motor:this.makeMotor(),message:"โหลดกลุ่มแล้ว • กดเริ่มเมื่อพร้อม",needsStart:true});
     }
   }
   views():GroupView[]{return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));}

@@ -109,3 +109,35 @@ test("scene cancellation during initial placement cannot start a stale LINE",{ti
   const blocked=gate(),started=gate(),commit=f.adapter.commit;f.adapter.commit=async items=>{started.release();await blocked.promise;await commit(items);};
   const starting=g.start("a",100,0);await started.promise;await g.stopAll(false);blocked.release();await assert.rejects(starting,/ยกเลิก/);assert.equal(g.running,false);
 });
+
+test("stationary effects need no LINE and start from the current pose rather than captured positions",async()=>{
+  const f=fixture(),g=f.g;g.create("a",f.items(["one","two"]));g.update("a","idle",{...defaultSettings,movement:"stationary",effect:"wiggle"});
+  f.scene.get("one")!.position={x:700,y:800};f.scene.get("one")!.rotation=41;
+  await g.start("a",100,0);await g.tick(1000/6);near(f.active.get("one")!.rotation,49);assert.deepEqual(f.active.get("one")!.position,{x:700,y:800});assert.equal(g.views()[0].route,undefined);
+  await g.stop("a");assert.equal(f.scene.get("one")!.rotation,41);assert.deepEqual(f.scene.get("one")!.position,{x:700,y:800});
+});
+
+test("stationary and LINE groups run independently and stopAll restores effect poses",async()=>{
+  const f=fixture(),g=f.g;g.create("idle",f.items(["one"]));g.update("idle","shake",{...defaultSettings,movement:"stationary",effect:"shake"});
+  g.create("walk",f.items(["two"]));g.setPath("walk",[{x:0,y:100},{x:500,y:100}]);g.update("walk","walk",{...defaultSettings,speed:1,effect:"wiggle"});
+  assert.deepEqual(await g.startAll(100,0),[]);await g.tick(333);assert.equal(g.views().filter(g=>g.running).length,2);
+  await g.stop("idle");await g.tick(500);assert.equal(g.views()[1].running,true);near(f.active.get("two")!.position.x,50);
+  await g.stopAll();assert.deepEqual(f.scene.get("one")!.position,{x:0,y:0});assert.equal(f.scene.get("two")!.rotation,25);near(f.scene.get("two")!.position.x,50);
+});
+
+test("switching between stationary and LINE preserves the saved path and restarts it cleanly",async()=>{
+  const f=fixture(),g=f.g;g.create("a",f.items(["one"]));const route=[{x:500,y:500},{x:700,y:500}];g.setPath("a",route);await g.start("a",100,0);await g.tick(250);await g.stop("a");
+  g.update("a","idle",{...defaultSettings,movement:"stationary",effect:"wiggle"});await g.start("a",100,1000);await g.tick(1200);await g.stop("a");assert.deepEqual(g.views()[0].route,route);
+  g.update("a","walk",{...defaultSettings,effect:"wiggle"});await g.start("a",100,2000);assert.deepEqual(f.active.get("one")!.position,route[0]);assert.equal(f.active.get("one")!.rotation,25);
+});
+
+test("effect settings persist, old groups default to plain LINE, and reload never auto-starts",()=>{
+  const f=fixture(),g=f.g;g.create("a",f.items(["one"]));g.update("a","idle",{...defaultSettings,movement:"stationary",effect:"wiggle",wiggleAngle:20,effectSpeed:2});
+  const old={...g.export()[0],id:"old",settings:{speed:1,mode:"once",smooth:false,flip:false,facing:"left"}};
+  const restored=new Groups(f.adapter);restored.hydrate([...g.export(),old]);assert.equal(restored.size,2);assert.equal(restored.running,false);assert.equal(restored.views()[0].settings.wiggleAngle,20);assert.equal(restored.views()[1].settings.effect,"none");assert.equal(restored.views()[1].settings.movement,"line");
+});
+
+test("stationary groups cannot overlap active LINE groups and need an actual effect",async()=>{
+  const f=fixture(),g=f.g;g.create("a",f.items(["one"]));g.setPath("a",[{x:0,y:0},{x:500,y:0}]);g.create("b",f.items(["one"]));g.update("b","idle",{...defaultSettings,movement:"stationary",effect:"shake"});
+  await g.start("a",100,0);await assert.rejects(g.start("b",100,0),/Token ซ้ำ/);await g.stopAll();g.update("b","none",{...defaultSettings,movement:"stationary",effect:"none"});await assert.rejects(g.start("b",100,1000),/เลือกเอฟเฟกต์/);
+});

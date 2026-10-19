@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import type {Item} from "@owlbear-rodeo/sdk";
 import {Motion, type MotionAdapter} from "../src/motion";
 import {durationMs, positionAt} from "../src/shared";
+import {effectOffset,noEffect} from "../src/effects";
 
 function fixture(scaleX=2,type="IMAGE") {
-  let items = [{id:"one",name:"One",type,scale:{x:scaleX,y:3}, position:{x:0,y:0}, locked:false}, {id:"two",name:"Two",type:"IMAGE",scale:{x:1,y:1}, position:{x:50,y:100}, locked:false}] as Item[];
+  let items = [{id:"one",name:"One",type,scale:{x:scaleX,y:3}, position:{x:0,y:0},rotation:25, locked:false}, {id:"two",name:"Two",type:"IMAGE",scale:{x:1,y:1}, position:{x:50,y:100},rotation:-13, locked:false}] as Item[];
   let live=structuredClone(items);
   let interactions = 0, stops = 0, commits = 0;
   const adapter: MotionAdapter = {
@@ -200,4 +201,40 @@ test("cancelling while the first interaction opens cannot revive the stopped run
   const starting=f.motor.start(f.initial,{x:100,y:0},100,1,true,false,0);
   await opening.promise;await f.motor.stop(false);blocked.release();
   await assert.rejects(starting,/ยกเลิก/);assert.equal(f.motor.running,false);assert.equal(f.counts().stops,1);
+});
+
+test("stationary wiggle rotates both ways around each token's own angle and restores on stop",async()=>{
+  const f=fixture();await f.motor.start(f.initial,{x:0,y:0},100,1,true,false,0,{flip:true,facing:"right",resume:false,stationary:true,effect:{...noEffect,effect:"wiggle"}});
+  await f.motor.tick(1000/6);near(f.live()[0].rotation,33);near(f.live()[1].rotation,-5);
+  assert.deepEqual(f.live().map(i=>i.position),f.initial.map(i=>i.position));
+  await f.motor.tick(500);near(f.live()[0].rotation,17);assert.deepEqual(f.live()[0].scale,{x:2,y:3});
+  await f.motor.stop();assert.deepEqual(f.items().map(i=>i.rotation),[25,-13]);assert.deepEqual(f.items().map(i=>i.position),f.initial.map(i=>i.position));
+});
+
+test("thousands of stationary shake frames stay bounded without position or angle drift",async()=>{
+  const f=fixture();await f.motor.start(f.initial,{x:0,y:0},100,1,true,false,0,{flip:false,facing:"right",resume:false,stationary:true,effect:{...noEffect,effect:"shake"}});
+  for(let now=0;now<10000;now+=3){await f.motor.tick(now);const p=f.live()[0];assert.ok(Math.abs(p.position.x)<=4.0000001);assert.ok(Math.abs(p.position.y)<=2.6000001);assert.equal(p.rotation,25);near(f.live()[1].position.x-p.position.x,50);near(f.live()[1].position.y-p.position.y,100);}
+  await f.motor.stop();assert.deepEqual(f.items().map(i=>i.position),f.initial.map(i=>i.position));
+});
+
+test("LINE shake uses clean positions at corners and finishes exactly on the final cell",async()=>{
+  const f=fixture(),effect={...noEffect,effect:"shake" as const};
+  await f.motor.start(f.initial,{x:100,y:100},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypoints:[{x:100,y:0},{x:100,y:100}],effect});
+  await f.motor.tick(1375);const offset=effectOffset(effect,1375,100);near(f.live()[0].position.x,100+offset.x);near(f.live()[0].position.y,37.5+offset.y);
+  await f.motor.tick(2000);assert.equal(f.motor.running,false);assert.deepEqual(f.items().map(i=>i.position),[{x:100,y:100},{x:150,y:200}]);assert.equal(f.items()[0].rotation,25);
+});
+
+test("wiggle composes with LINE flipping and pause/resume without storing a tilted pose",async()=>{
+  const f=fixture(),options={flip:true,facing:"right" as const,resume:true,effect:{...noEffect,effect:"wiggle" as const}};
+  await f.motor.start(f.initial,{x:-200,y:0},100,1,true,false,0,options);await f.motor.tick(500);near(f.live()[0].rotation,17);assert.equal(f.live()[0].scale.x,-2);
+  await f.motor.stop();assert.equal(f.items()[0].rotation,25);assert.deepEqual(f.items()[0].position,{x:-50,y:0});
+  await f.motor.start(f.initial,{x:-200,y:0},100,1,true,false,1000,options);assert.equal(f.live()[0].rotation,25);await f.motor.tick(1500);await f.motor.stop();assert.equal(f.items()[0].rotation,25);near(f.items()[0].position.x,-100);
+});
+
+test("stationary effects keep phase through interaction renewal and checkpoint only clean poses",async()=>{
+  const f=fixture(),effect={...noEffect,effect:"wiggle" as const};
+  await f.motor.start(f.initial,{x:0,y:0},100,1,true,false,0,{flip:false,facing:"right",resume:false,stationary:true,effect});
+  await f.motor.tick(20017);await f.motor.waitForMaintenance();assert.equal(f.items()[0].rotation,25);
+  await f.motor.tick(20033);near(f.live()[0].rotation,25+effectOffset(effect,20033,100).rotation);assert.equal(f.counts().interactions,2);assert.equal(f.motor.running,true);
+  await f.motor.stop();assert.equal(f.items()[0].rotation,25);assert.deepEqual(f.items()[0].position,{x:0,y:0});
 });

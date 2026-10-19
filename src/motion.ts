@@ -1,5 +1,6 @@
 import type {Item} from "@owlbear-rodeo/sdk";
 import {durationMs, positionAt, type Point, type Anchor, type Facing} from "./shared";
+import {effectOffset,noEffect,type EffectOptions} from "./effects";
 
 type Interaction = [(recipe: (draft: Item[]) => void) => Item[], () => void];
 export interface MotionAdapter {
@@ -11,6 +12,11 @@ export interface MotionAdapter {
 export class Motion {
   private interaction?: Interaction;
   private latest: Item[] = [];
+  private basePositions:Point[]=[];
+  private rotations:number[]=[];
+  private effect:EffectOptions={...noEffect};
+  private effectStarted=0;
+  private stationary=false;
   private from: Point[] = [];
   private target: Point[] = [];
   private stops: Point[][] = [];
@@ -54,10 +60,10 @@ export class Motion {
       if(!current())return;
       if(fresh.length!==this.latest.length||fresh.some(i=>i.locked||i.attachedTo))throw new Error("หยุดแล้ว: วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น");
       // Keep the old interaction moving throughout checkpoint and replacement RPCs.
-      await this.persist(this.latest,generation);
+      await this.persist(this.cleanPose(),generation);
       if(!current())return;
       const byId=new Map(fresh.map(i=>[i.id,i]));
-      const base=this.latest.map(i=>({...byId.get(i.id)!,position:{...i.position},scale:{...i.scale}}));
+      const base=this.latest.map(i=>({...byId.get(i.id)!,position:{...i.position},scale:{...i.scale},rotation:i.rotation}));
       const next=await this.adapter.interact(base);
       if(!current()){next[1]();return;}
       this.replacement=next;
@@ -70,7 +76,7 @@ export class Motion {
   /** Await I/O only for lifecycle coordination or diagnostics, never for frame scheduling. */
   async waitForMaintenance(){await this.renewal;await this.commits;}
 
-  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[]} = {flip:false,facing:"right",resume:false}) {
+  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[];stationary?:boolean;effect?:EffectOptions} = {flip:false,facing:"right",resume:false}) {
     if (!originals.length) throw new Error("เลือก Token ให้กลุ่มก่อน");
     const stopped=this.stop(),generation=this.generation;
     await stopped;
@@ -79,6 +85,9 @@ export class Motion {
     if(this.generation!==generation)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
     if (fresh.length !== originals.length || fresh.some(i => i.locked || i.attachedTo)) throw new Error("วัตถุถูกลบ ล็อก หรือแนบกับวัตถุอื่น กรุณาเลือก Token ใหม่");
     this.latest = originals.map(o => fresh.find(i => i.id === o.id)!);
+    this.basePositions=this.latest.map(i=>({...i.position}));
+    this.rotations=this.latest.map(i=>Number.isFinite(i.rotation)?i.rotation:0);
+    this.stationary=options.stationary===true;this.effect={...(options.effect??noEffect)};
     const points=options.waypoints?.length?options.waypoints:[b];
     this.stops=[originals.map(i=>({...i.position})),...points.map(point=>originals.map(i=>({x:i.position.x+point.x-originals[0].position.x,y:i.position.y+point.y-originals[0].position.y})))];
     this.dpi = dpi; this.speed = speed; this.patrol = patrol; this.smooth = smooth;
@@ -88,7 +97,7 @@ export class Motion {
       this.goingHome=false;this.targetIndex=Math.min(this.stops.length-1,this.targetIndex+1);
     }
     this.targetIndex=Math.max(0,Math.min(this.stops.length-1,this.targetIndex));
-    this.flip = options.flip; this.facing = options.facing;
+    this.flip = options.flip&&!this.stationary; this.facing = options.facing;
     this.scales = this.latest.map((item,i) => ({x: Math.abs(item.scale.x) * (Math.sign(originals[i].scale.x) || 1), y: item.scale.y}));
     // Validate before opening an interaction.
     durationMs(this.latest[0].position, this.stops[this.targetIndex][0], dpi, speed);
@@ -97,14 +106,18 @@ export class Motion {
     if(this.generation!==generation){interaction[1]();throw new Error("ยกเลิกการเริ่มเดินแล้ว");}
     this.interaction = interaction;
     this.started=this.clock?.()??now;
-    this.renewed = this.started; this.running = true; this.routeStarted = true;
+    this.effectStarted=this.started;this.renewed = this.started; this.running = true; this.routeStarted = true;
     this.setProgress(0);
-    this.apply(0);
+    this.apply(0,this.started);
   }
-  private apply(t: number) {
+  private cleanPose():Item[]{return this.latest.map((item,i)=>({...item,position:{...this.basePositions[i]},...(this.effect.effect==="wiggle"?{rotation:this.rotations[i]}:{})}));}
+  private apply(t: number,now:number) {
     if (!this.interaction) return;
+    const offset=effectOffset(this.effect,now-this.effectStarted,this.dpi);
     this.latest = this.interaction[0](draft => draft.forEach((item, i) => {
-      item.position = positionAt(this.from[i], this.target[i], t, this.smooth);
+      const base=this.stationary?this.basePositions[i]:positionAt(this.from[i], this.target[i], t, this.smooth);
+      this.basePositions[i]={...base};item.position={x:base.x+offset.x,y:base.y+offset.y};
+      if(this.effect.effect==="wiggle")item.rotation=this.rotations[i]+offset.rotation;
       if (this.flip && item.type === "IMAGE") {
         const dx = this.target[i].x - this.from[i].x;
         // Horizontal routes face the direction of travel. Vertical routes flip on return.
@@ -114,7 +127,7 @@ export class Motion {
     }));
   }
   private beginLeg(now: number) {
-    this.from = this.latest.map(i => ({...i.position}));
+    this.from = this.basePositions.map(p => ({...p}));
     this.target = this.stops[this.targetIndex];
     this.duration = Math.max(...this.from.map((p, i) => durationMs(p, this.target[i], this.dpi, this.speed)));
     this.started = now;
@@ -132,10 +145,11 @@ export class Motion {
     }
     // Start early; the live interaction continues while the asynchronous replacement prepares.
     if(now-this.renewed>=20_000&&!this.renewal&&!this.replacement)this.renew();
+    if(this.stationary){this.progress=0;this.apply(0,now);return;}
     // Consume overshoot so short cells and corners do not reduce the chosen speed.
     for(let crossed=0;crossed<1000;crossed++) {
       const t=Math.min(1,Math.max(0,(now-this.started)/this.duration));
-      this.setProgress(t);this.apply(t);
+      this.setProgress(t);this.apply(t,now);
       if(t<1)return;
       const arrived=this.started+this.duration;
       if(!this.goingHome&&this.targetIndex===this.stops.length-1) {
@@ -143,7 +157,7 @@ export class Motion {
         this.goingHome=true;
       } else if(this.goingHome&&this.targetIndex===0) this.goingHome=false;
       this.targetIndex+=this.goingHome?-1:1;
-      this.beginLeg(arrived);this.setProgress(0);this.apply(0);
+      this.beginLeg(arrived);this.setProgress(0);this.apply(0,now);
       // Skip complete cycles after a long browser suspension without shortcutting corners.
       if(this.patrol&&(this.targetIndex===1&&!this.goingHome)) {
         const cycle=2*this.stops.slice(1).reduce((sum,stop,i)=>sum+Math.max(...stop.map((p,j)=>durationMs(this.stops[i][j],p,this.dpi,this.speed))),0);
@@ -159,9 +173,15 @@ export class Motion {
     this.running = false;
     const generation=++this.generation;
     this.maintenanceError=undefined;
+    // Remove the temporary effect in the live interaction before ending it and committing.
+    // LINE's clean position remains the current point on its route.
+    if(commit&&wasRunning&&this.interaction&&this.effect.effect!=="none"){
+      const clean=this.cleanPose();
+      this.latest=this.interaction[0](draft=>draft.forEach((item,i)=>{item.position={...clean[i].position};if(this.effect.effect==="wiggle")item.rotation=this.rotations[i];}));
+    }
     this.interaction?.[1](); this.interaction = undefined;
     this.replacement?.[1]();this.replacement=undefined;
     this.renewal=undefined;
-    if (commit && wasRunning) await this.persist(this.latest,generation);
+    if (commit && wasRunning) await this.persist(this.cleanPose(),generation);
   }
 }
