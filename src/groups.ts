@@ -47,13 +47,13 @@ export class Groups {
     const route:Point[]=[];
     for(const p of points){const last=route.at(-1);if(!last||Math.hypot(p.x-last.x,p.y-last.y)>.01)route.push({...p});}
     if(route.length<2)throw new Error("เลือกช่องถัดไปให้ต่างจากช่องเริ่ม");
-    e.config.route=route;e.config.settings={...e.config.settings,waypointPauses:undefined};e.motor=this.makeMotor();e.needsStart=true;e.message=`LINE ${route.length} จุดพร้อมแล้ว`;
+    e.config.route=route;e.config.settings={...e.config.settings,waypointPauses:undefined,waypointEffects:undefined};e.motor=this.makeMotor();e.needsStart=true;e.message=`LINE ${route.length} จุดพร้อมแล้ว`;
   }
   setStart(id:string,point:Point){
     const e=this.get(id);this.requireStopped(e);
     if(!finitePoint(point)||!e.config.route)throw new Error("สร้าง LINE ก่อนเปลี่ยนช่องเริ่ม");
-    const pauses=e.config.settings.waypointPauses;
-    this.setPath(id,[point,...e.config.route.slice(1)]);e.config.settings.waypointPauses=pauses;e.message="เปลี่ยนช่องเริ่มแล้ว • จุดอื่นยังอยู่ที่เดิม";
+    const pauses=e.config.settings.waypointPauses,effects=e.config.settings.waypointEffects;
+    this.setPath(id,[point,...e.config.route.slice(1)]);e.config.settings.waypointPauses=pauses;e.config.settings.waypointEffects=effects;e.message="เปลี่ยนช่องเริ่มแล้ว • จุดอื่นยังอยู่ที่เดิม";
   }
   clearRoute(id:string){const e=this.get(id);this.requireStopped(e);e.config.route=undefined;e.motor=this.makeMotor();e.needsStart=true;}
   private lineAnchors(e:Runtime):Anchor[]{
@@ -86,7 +86,7 @@ export class Groups {
       if(e.motor!==previous||previous.revision!==revision)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
       e.motor=this.makeMotor();
     }
-    await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1),effect:s,waypointPauses:s.waypointPauses});
+    await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1),effect:s,waypointPauses:s.waypointPauses,waypointEffects:s.waypointEffects});
     e.needsStart=false;e.message=s.mode==="patrol"?"กำลังเดินวนตาม LINE":"กำลังเดินตาม LINE";
   }
   async stop(id:string,commit=true){const e=this.get(id);await e.motor.stop(commit);e.message="หยุดแล้ว • กดเดินต่อได้";}

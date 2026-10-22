@@ -1,5 +1,5 @@
 import type {Item} from "@owlbear-rodeo/sdk";
-import {durationMs, positionAt, type Point, type Anchor, type Facing} from "./shared";
+import {durationMs, positionAt, type Point, type Anchor, type Facing, type PauseEffect} from "./shared";
 import {effectOffset,noEffect,type EffectOptions} from "./effects";
 
 type Interaction = [(recipe: (draft: Item[]) => void) => Item[], () => void];
@@ -18,6 +18,8 @@ export class Motion {
   private effectStarted=0;
   private stationary=false;
   private pauses:number[]=[];
+  private pauseEffects:PauseEffect[]=[];
+  private hasWiggle=false;
   private waitUntil?:number;
   private savedPause=0;
   private lastTick=0;
@@ -82,7 +84,7 @@ export class Motion {
   /** Await I/O only for lifecycle coordination or diagnostics, never for frame scheduling. */
   async waitForMaintenance(){await this.renewal;await this.commits;}
 
-  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[];stationary?:boolean;effect?:EffectOptions;waypointPauses?:number[]} = {flip:false,facing:"right",resume:false}) {
+  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[];stationary?:boolean;effect?:EffectOptions;waypointPauses?:number[];waypointEffects?:PauseEffect[]} = {flip:false,facing:"right",resume:false}) {
     if (!originals.length) throw new Error("เลือก Token ให้กลุ่มก่อน");
     const stopped=this.stop(),generation=this.generation;
     await stopped;
@@ -96,7 +98,8 @@ export class Motion {
     this.stationary=options.stationary===true;this.effect={...(options.effect??noEffect)};
     const points=options.waypoints?.length?options.waypoints:[b];
     this.stops=[originals.map(i=>({...i.position})),...points.map(point=>originals.map(i=>({x:i.position.x+point.x-originals[0].position.x,y:i.position.y+point.y-originals[0].position.y})))];
-    this.pauses=options.waypointPauses??[];
+    this.pauses=options.waypointPauses??[];this.pauseEffects=options.waypointEffects??[];
+    this.hasWiggle=this.effect.effect==="wiggle"||this.pauseEffects.includes("wiggle");
     if(!options.resume||!this.routeStarted)this.savedPause=0;
     this.waitUntil=undefined;
     this.dpi = dpi; this.speed = speed; this.patrol = patrol; this.smooth = smooth;
@@ -120,14 +123,18 @@ export class Motion {
     if(this.savedPause>0){this.waitUntil=this.started+this.savedPause;this.started-=this.duration;this.savedPause=0;this.setProgress(1);this.apply(1,this.lastTick);}
     else{this.setProgress(0);this.apply(0,this.started);}
   }
-  private cleanPose():Item[]{return this.latest.map((item,i)=>({...item,position:{...this.basePositions[i]},...(this.effect.effect==="wiggle"?{rotation:this.rotations[i]}:{})}));}
+  private cleanPose():Item[]{return this.latest.map((item,i)=>({...item,position:{...this.basePositions[i]},...(this.hasWiggle?{rotation:this.rotations[i]}:{})}));}
   private apply(t: number,now:number) {
     if (!this.interaction) return;
-    const offset=effectOffset(this.effect,now-this.effectStarted,this.dpi);
+    const paused=!this.stationary&&this.waitUntil!==undefined&&now<this.waitUntil;
+    const override=paused?(this.pauseEffects[this.targetIndex]??"inherit"):"inherit";
+    const effect=override==="inherit"?this.effect:{...this.effect,effect:override};
+    const elapsed=override==="inherit"?now-this.effectStarted:now-(this.waitUntil!-(this.pauses[this.targetIndex]??0)*1000);
+    const offset=effectOffset(effect,elapsed,this.dpi);
     this.latest = this.interaction[0](draft => draft.forEach((item, i) => {
       const base=this.stationary?this.basePositions[i]:positionAt(this.from[i], this.target[i], t, this.smooth);
       this.basePositions[i]={...base};item.position={x:base.x+offset.x,y:base.y+offset.y};
-      if(this.effect.effect==="wiggle")item.rotation=this.rotations[i]+offset.rotation;
+      if(this.hasWiggle)item.rotation=this.rotations[i]+offset.rotation;
       if (this.flip && item.type === "IMAGE") {
         const dx = this.target[i].x - this.from[i].x;
         // Horizontal routes face the direction of travel. Vertical routes flip on return.
@@ -164,7 +171,7 @@ export class Motion {
       if(t<1)return;
       const arrival=this.started+this.duration;
       if(this.waitUntil===undefined)this.waitUntil=arrival+(this.pauses[this.targetIndex]??0)*1000;
-      if(now<this.waitUntil)return;
+      if(now<this.waitUntil){this.apply(1,now);return;}
       const arrived=this.waitUntil;this.waitUntil=undefined;
       if(!this.goingHome&&this.targetIndex===this.stops.length-1) {
         if(!this.patrol){await this.stop();return;}
@@ -191,9 +198,9 @@ export class Motion {
     this.maintenanceError=undefined;
     // Remove the temporary effect in the live interaction before ending it and committing.
     // LINE's clean position remains the current point on its route.
-    if(commit&&wasRunning&&this.interaction&&this.effect.effect!=="none"){
+    if(commit&&wasRunning&&this.interaction){
       const clean=this.cleanPose();
-      this.latest=this.interaction[0](draft=>draft.forEach((item,i)=>{item.position={...clean[i].position};if(this.effect.effect==="wiggle")item.rotation=this.rotations[i];}));
+      this.latest=this.interaction[0](draft=>draft.forEach((item,i)=>{item.position={...clean[i].position};if(this.hasWiggle)item.rotation=this.rotations[i];}));
     }
     this.interaction?.[1](); this.interaction = undefined;
     this.replacement?.[1]();this.replacement=undefined;

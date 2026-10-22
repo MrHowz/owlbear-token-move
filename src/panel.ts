@@ -1,5 +1,5 @@
 import OBR from "@owlbear-rodeo/sdk";
-import {COMMAND,STATE,VERSION,initialState,defaultSettings,normalizedSettings,type Command,type GroupView,type State,type StatePacket,type Settings} from "./shared";
+import {COMMAND,STATE,VERSION,initialState,defaultSettings,normalizedSettings,durationMs,type PauseEffect,type Command,type GroupView,type State,type StatePacket,type Settings} from "./shared";
 import "./style.css";
 
 const paths={add:"M12 5v14M5 12h14",line:"M5 18V9a4 4 0 0 1 4-4h10m-4-4 4 4-4 4M5 18h.01",loop:"M5 7h13l-4-4m4 4-4 4M19 17H6l4 4m-4-4 4-4",flip:"M12 3v18M8 7l-5 5 5 5V7Zm8 0 5 5-5 5V7Z",play:"m8 4 12 8-12 8V4Z",stop:"M6 6h12v12H6Z",more:"M5 12h.01M12 12h.01M19 12h.01",pin:"M12 21S5 13 5 9a7 7 0 1 1 14 0c0 4-7 12-7 12ZM12 6v6M9 9h6",eye:"M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6",undo:"M9 5 3 11l6 6M3 11h10a7 7 0 0 1 7 7",check:"m5 12 4 4L20 5",close:"m6 6 12 12M6 18 18 6",help:"M9 8a3 3 0 0 1 6 0c0 3-3 2-3 5m0 4h.01"};
@@ -92,7 +92,7 @@ function makeRow(id:string):Row{
   <section class="row-details" hidden><label class="detail-name">ชื่อกลุ่ม<input data-field="name" maxlength="80"></label><div class="detail-actions"><button data-action="pickStart" class="secondary">${icon("pin")}เลือกจุดเริ่ม</button><button data-action="showRoute" class="secondary">${icon("eye")}<span>แสดงเส้นทาง</span></button></div>
   <label class="detail-toggle"><span>ค่อย ๆ ออกตัวและหยุด</span><input data-field="smooth" type="checkbox"></label><label class="detail-facing">ภาพต้นฉบับหัน<select data-field="facing"><option value="right">ขวา →</option><option value="left">ซ้าย ←</option></select></label>
   <div class="effect-options"><label data-option="shakeDistance">ระยะสั่น ± (ช่อง)<input data-field="shakeDistance" type="number" min="0.005" max="0.25" step="0.005"></label><label data-option="wiggleAngle">หมุนซ้าย–ขวา ± (องศา)<input data-field="wiggleAngle" type="number" min="1" max="30" step="1"></label><label data-option="effectSpeed">จังหวะเอฟเฟกต์ (เท่า)<input data-field="effectSpeed" type="number" min="0.25" max="3" step="0.25"></label><p>กดหยุดเพื่อคืนท่าเดิม • ระหว่างเดินจะหยุดที่ตำแหน่งล่าสุดบน LINE</p></div>
-  <details class="point-details"><summary>จุดพักระหว่างทาง</summary><p>กำหนดวินาทีที่พักเมื่อถึงแต่ละจุด · 0 = ผ่านเลย<br>วนไปกลับจะพักทั้งสองขา · วาด LINE ใหม่จะล้างเวลาพัก</p><ol></ol></details><div class="member-actions"><button data-action="capture" class="quiet">เปลี่ยน Token</button><button data-action="reset" class="quiet">กลับจุดเริ่ม</button><button data-action="remove" class="quiet danger">ลบกลุ่ม</button></div></section>`;
+  <details class="point-details"><summary>เวลาเดิน · จุดพัก · เอฟเฟกต์รายจุด</summary><p>เวลาเดินคำนวณจากระยะทาง ÷ ความเร็ว ไม่รวมเวลาพัก<br>ตั้งเวลาพักและเอฟเฟกต์แยกแต่ละจุด · 0 = ผ่านเลย<br>วนไปกลับจะพักทั้งสองขา · วาด LINE ใหม่จะล้างเวลาพัก</p><ol></ol></details><div class="member-actions"><button data-action="capture" class="quiet">เปลี่ยน Token</button><button data-action="reset" class="quiet">กลับจุดเริ่ม</button><button data-action="remove" class="quiet danger">ลบกลุ่ม</button></div></section>`;
   const q=<T extends Element=HTMLElement>(selector:string)=>element.querySelector(selector) as T;
   const buttons={} as Record<Action,HTMLButtonElement>;
   for(const b of Array.from(element.querySelectorAll<HTMLButtonElement>("[data-action]"))){
@@ -132,7 +132,7 @@ function render(){
     row.element.classList.toggle("selected",state.selectedId===g.id);row.element.classList.toggle("running",g.running);row.element.classList.toggle("busy",!!busy);row.element.classList.toggle("dirty",drafts.has(g.id));
     row.element.setAttribute("aria-busy",String(!!busy));
     text(row.name,d.name||g.name);text(row.meta,`${g.count} Token · ${fixed?"อยู่กับที่":g.route?`${g.route.length} จุด`:"ยังไม่มี LINE"}`);
-    text(row.phase,g.running?(g.pauseRemaining?`พัก ${Math.ceil(g.pauseRemaining)} วิ`:fixed?(s.effect==="shake"?"กำลังสั่น":"ดุ๊กดิ๊ก"):`${g.direction==="return"?"←":"→"} ${Math.round(g.progress*100)}%`):ready?(!fixed&&g.progress>0&&g.progress<1?"พัก":!fixed&&g.settings.mode==="once"&&g.progress>=1?"จบรอบ":"พร้อม"):"วาด LINE");
+    text(row.phase,g.running?(g.pauseRemaining?`จุด ${(g.waypointIndex??0)+1} · พัก ${Math.ceil(g.pauseRemaining)} วิ`:fixed?(s.effect==="shake"?"กำลังสั่น":"ดุ๊กดิ๊ก"):`${g.direction==="return"?(g.waypointIndex??0)+2:(g.waypointIndex??1)} → ${(g.waypointIndex??1)+1} · ${Math.round(g.progress*100)}%`):ready?(!fixed&&g.progress>0&&g.progress<1?"พัก":!fixed&&g.settings.mode==="once"&&g.progress>=1?"จบรอบ":"พร้อม"):"วาด LINE");
     row.bar.style.width=`${g.running?Math.max(0,Math.min(100,g.progress*100)):g.progress===1?100:0}%`;
     row.details.hidden=!expanded;row.buttons.more.setAttribute("aria-expanded",String(expanded));
     row.element.querySelector(".row-name")!.setAttribute("aria-expanded",String(expanded));
@@ -155,8 +155,8 @@ function render(){
       if(document.activeElement!==field)field.value=String(s[key]);
     }
     (row.fields.effect as HTMLSelectElement).options[0].disabled=fixed;
-    for(const key of ["shakeDistance","wiggleAngle","effectSpeed"] as const){const active=key==="effectSpeed"?s.effect!=="none":key==="shakeDistance"?s.effect==="shake":s.effect==="wiggle";row.element.querySelector<HTMLElement>(`[data-option="${key}"]`)!.hidden=!active;row.fields[key].disabled=locked||!active;}
-    row.element.querySelector<HTMLElement>(".effect-options")!.hidden=s.effect==="none";
+    for(const key of ["shakeDistance","wiggleAngle","effectSpeed"] as const){const active=key==="effectSpeed"?(s.effect!=="none"||s.waypointEffects?.some(e=>e==="wiggle"||e==="shake")===true):key==="shakeDistance"?(s.effect==="shake"||s.waypointEffects?.includes("shake")===true):(s.effect==="wiggle"||s.waypointEffects?.includes("wiggle")===true);row.element.querySelector<HTMLElement>(`[data-option="${key}"]`)!.hidden=!active;row.fields[key].disabled=locked||!active;}
+    row.element.querySelector<HTMLElement>(".effect-options")!.hidden=s.effect==="none"&&!s.waypointEffects?.some(e=>e==="wiggle"||e==="shake");
     row.buttons.pickStart.disabled=locked||fixed||!hasRoute;row.buttons.capture.disabled=locked;
     row.buttons.reset.disabled=unavailable||picking||(!fixed&&!hasRoute)||!g.count;text(row.buttons.reset,fixed?"คืนท่าเดิม":"กลับจุดเริ่ม");row.buttons.remove.disabled=unavailable||picking;
     row.buttons.showRoute.disabled=unavailable||picking||fixed||!hasRoute;
@@ -168,10 +168,16 @@ function render(){
       const id=g.id;const li=document.createElement("li"),label=document.createElement("label"),name=document.createElement("span"),input=document.createElement("input"),unit=document.createElement("span");
       name.textContent=`จุด ${i+1}${i===0?" · เริ่ม (พักตอนกลับ)":i===g.route!.length-1?" · สุดท้าย":""}`;name.title=`พิกัด ${Math.round(p.x)}, ${Math.round(p.y)}`;
       input.type="number";input.min="0";input.max="3600";input.step="0.1";input.inputMode="decimal";input.dataset.pause=String(i);unit.textContent="วินาที";
+      const timing=document.createElement("small");timing.className="leg-time";timing.dataset.leg=String(i);
+      const effect=document.createElement("select");effect.dataset.pauseEffect=String(i);
+      for(const [value,title]of [["inherit","ตามเอฟเฟกต์กลุ่ม"],["none","หยุดนิ่ง"],["wiggle","ดุ๊กดิ๊กตอนพัก"],["shake","สั่นตอนพัก"]]){const o=document.createElement("option");o.value=value;o.textContent=title;effect.append(o);}
+      effect.addEventListener("change",()=>{const g=group(id);if(!g||g.running)return;const effects=[...(editing(g).settings.waypointEffects??[])];while(effects.length<(g.route?.length??0))effects.push("inherit");effects[i]=effect.value as PauseEffect;changed(id,{},{waypointEffects:effects});saveLater(id);});
       input.addEventListener("input",()=>{const g=group(id);if(!g||g.running)return;const pauses=[...(editing(g).settings.waypointPauses??[])];while(pauses.length<(g.route?.length??0))pauses.push(0);pauses[i]=input.valueAsNumber;changed(id,{},{waypointPauses:pauses});});
       input.addEventListener("change",()=>{if(input.reportValidity())saveLater(id);});input.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();if(input.reportValidity())saveLater(id);}});
-      label.append(name,input,unit);li.append(label);return li;
+      label.append(name,input,unit);li.append(timing,label,effect);return li;
     }));}
+    for(const timing of Array.from(row.points.querySelectorAll<HTMLElement>("[data-leg]"))){const i=Number(timing.dataset.leg);text(timing,i===0?"เริ่มที่จุด 1 · ออกเดินทันที":state.gridDpi&&g.route&&Number.isFinite(s.speed)&&s.speed>=.1&&s.speed<=20?`${i} → ${i+1} · เดิน ${(durationMs(g.route[i-1],g.route[i],state.gridDpi,s.speed)/1000).toLocaleString("th-TH",{maximumFractionDigits:2})} วินาที`:"ตรวจความเร็ว 0.1–20 ช่อง/วิ หรือรออ่านกริด");}
+    for(const effect of Array.from(row.points.querySelectorAll<HTMLSelectElement>("select[data-pause-effect]"))){const i=Number(effect.dataset.pauseEffect);effect.disabled=locked;effect.setAttribute("aria-label",`เอฟเฟกต์ตอนพักจุด ${i+1} — ${d.name}`);effect.value=s.waypointEffects?.[i]??"inherit";}
     for(const input of Array.from(row.points.querySelectorAll<HTMLInputElement>("input[data-pause]"))){input.disabled=locked;input.setAttribute("aria-label",`เวลาพักจุด ${Number(input.dataset.pause)+1} (วินาที) — ${d.name}`);if(document.activeElement!==input)input.value=String(s.waypointPauses?.[Number(input.dataset.pause)]??0);}}
 
   }

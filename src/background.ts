@@ -1,4 +1,4 @@
-import OBR, {buildCurve, type Item} from "@owlbear-rodeo/sdk";
+import OBR, {buildCurve, buildText, type Item} from "@owlbear-rodeo/sdk";
 import {Groups} from "./groups";
 import {OrderedPublisher} from "./publisher";
 import {COMMAND, STATE, ID, VERSION, initialState, statePackets, type Command, type CommandMessage, type State, type Point, type StatePacket} from "./shared";
@@ -68,9 +68,16 @@ async function drawRoute() {
     const preview:Item[]=[];
     if(points.length>1)preview.push(buildCurve().points(points).tension(0).strokeColor("#8be6c8").strokeWidth(Math.max(2,dpi*.035)).fillOpacity(0).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name("Token Move LINE — preview").build());
     for(const [index,p] of points.entries()) {
-      const radius=dpi*(index===0?.15:.09);
+      const radius=dpi*.13;
       const ring=Array.from({length:12},(_,i)=>({x:p.x+Math.cos(i*Math.PI/6)*radius,y:p.y+Math.sin(i*Math.PI/6)*radius}));
       preview.push(buildCurve().points(ring).closed(true).tension(0).strokeColor(index===0?"#b9e7ff":"#8be6c8").strokeWidth(Math.max(1,dpi*.02)).fillColor(index===0?"#b9e7ff":"#8be6c8").fillOpacity(.35).layer("POINTER").locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name(`LINE ${index===0?"เริ่ม":index+1}`).build());
+    }
+    const badge=(value:string,p:Point,size:number,name:string)=>buildText().plainText(value).textType("PLAIN").position(p).fontSize(size).fontWeight(700).fillColor("#ffffff").strokeColor("#101820").strokeWidth(Math.max(1,dpi*.018)).width("AUTO").height("AUTO").padding(0).layer("POINTER").zIndex(Date.now()+1000).locked(true).disableHit(true).metadata({[`${ID}/preview`]:storageKey}).name(name).build();
+    for(const [index,p]of points.entries()){
+      const repeated=points.slice(0,index).filter(other=>Math.hypot(other.x-p.x,other.y-p.y)<.01).length;
+      preview.push(badge(String(index+1),{x:p.x+dpi*.18,y:p.y-dpi*(.40+repeated*.34)},dpi*.28,`LINE จุด ${index+1}${index===0?" เริ่ม":""}`));
+      if(index>0){const a=points[index-1],dx=p.x-a.x,dy=p.y-a.y,length=Math.hypot(dx,dy)||1;
+        preview.push(badge(`${index}→${index+1}`,{x:(a.x+p.x)/2-dy/length*dpi*.8,y:(a.y+p.y)/2+dx/length*dpi*.8},dpi*.16,`LINE ช่วง ${index} ไป ${index+1}`));}
     }
     await OBR.scene.local.addItems(preview);
     if(drawingEpoch!==epoch){await OBR.scene.local.deleteItems(preview.map(i=>i.id));return;}
@@ -129,6 +136,7 @@ async function loadScene(ready:boolean) {
   await groups.clear();
   state={...initialState,routeVisible:true,ready,gm:await OBR.player.getRole()==="GM",message:ready?"เลือก Token แล้วเพิ่มกลุ่มเพื่อสร้าง LINE":"กรุณาเปิด Scene ก่อน"};
   if(ready&&state.gm) {
+    state.gridDpi=await OBR.scene.grid.getDpi();
     const metadata=await OBR.scene.getMetadata();
     const saved=metadata[storageKey] as {version?:number;gridVersion?:number;groups?:unknown}|undefined;
     if(saved?.version===2||saved?.version===3)groups.hydrate(saved.groups,saved.version);
@@ -261,6 +269,7 @@ OBR.onReady(async()=>{
         await publish();
       });
     });
+    OBR.scene.grid.onChange(grid=>enqueue(async()=>{state.gridDpi=grid.dpi;await publish();}));
     OBR.scene.items.onChange(items=>{if(groups.running) enqueue(async()=>{await groups.checkItems(items);});});
     let lastPublish=0;
     setInterval(()=>{

@@ -271,3 +271,23 @@ test("long waypoint waits renew live interactions and retain the remaining wait"
  const f=fixture();await f.motor.start(f.initial,{x:100,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypointPauses:[0,60]});
  await f.motor.tick(20000);await f.motor.waitForMaintenance();await f.motor.tick(40000);assert.equal(f.live()[0].position.x,100);assert.equal(f.motor.pauseRemaining,21);await f.motor.tick(61000);assert.equal(f.motor.running,false);
 });
+
+
+test("a plain LINE wiggles only during a chosen point pause and restores its angle on departure",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:200,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypoints:[{x:100,y:0},{x:200,y:0}],waypointPauses:[0,2,0],waypointEffects:["inherit","wiggle","inherit"]});
+ await f.motor.tick(500);assert.equal(f.live()[0].rotation,25);
+ await f.motor.tick(1500);assert.equal(f.live()[0].position.x,100);assert.notEqual(f.live()[0].rotation,25);
+ await f.motor.tick(3500);assert.equal(f.live()[0].position.x,150);assert.equal(f.live()[0].rotation,25);await f.motor.tick(4000);assert.equal(f.items()[0].rotation,25);
+});
+test("a point can hold perfectly still while the travelling LINE wiggles",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:200,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypoints:[{x:100,y:0},{x:200,y:0}],waypointPauses:[0,2,0],waypointEffects:["inherit","none","inherit"],effect:{...noEffect,effect:"wiggle"}});
+ await f.motor.tick(500);assert.notEqual(f.live()[0].rotation,25);await f.motor.tick(1500);assert.equal(f.live()[0].rotation,25);await f.motor.tick(3500);assert.notEqual(f.live()[0].rotation,25);await f.motor.stop();assert.equal(f.items()[0].rotation,25);
+});
+test("pause-only shake does not drift and manual stop restores the clean waypoint",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:100,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypointPauses:[0,5],waypointEffects:["inherit","shake"]});
+ await f.motor.tick(1750);assert.notEqual(f.live()[0].position.x,100);await f.motor.stop();assert.deepEqual(f.items()[0].position,{x:100,y:0});assert.equal(f.items()[0].rotation,25);
+});
+test("a zero-second pause does not activate its point effect",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:200,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypoints:[{x:100,y:0},{x:200,y:0}],waypointEffects:["inherit","wiggle","inherit"]});
+ await f.motor.tick(1500);assert.equal(f.live()[0].rotation,25);assert.equal(f.live()[0].position.x,150);
+});

@@ -157,3 +157,11 @@ test("stopping during the final wait resumes waiting rather than teleporting to 
  const f=fixture(),g=f.g;g.create("a",f.items(["one"]));g.setPath("a",[{x:0,y:0},{x:100,y:0}]);g.update("a","wait",{...defaultSettings,speed:1,mode:"once",waypointPauses:[0,5]});
  await g.start("a",100,0);await g.tick(2000);await g.stop("a");await g.start("a",100,10000);await g.tick(11000);assert.equal(f.active.get("one")!.position.x,100);assert.equal(g.views()[0].pauseRemaining,3);await g.tick(14000);assert.equal(g.views()[0].running,false);
 });
+
+test("per-point effects survive hydration and reject malformed values",()=>{
+ const f=fixture(),g=f.g;g.create("a",f.items(["one"]));g.setPath("a",[{x:0,y:0},{x:100,y:0}]);g.update("a","effect",{...defaultSettings,waypointPauses:[0,4],waypointEffects:["inherit","wiggle"]});
+ const copy=new Groups(f.adapter);copy.hydrate(g.export());assert.deepEqual(copy.export()[0].settings.waypointEffects,["inherit","wiggle"]);
+ assert.throws(()=>g.update("a","bad",{...defaultSettings,waypointEffects:["invalid"] as any}));
+ g.setStart("a",{x:20,y:0});assert.deepEqual(g.export()[0].settings.waypointEffects,["inherit","wiggle"]);
+ g.setPath("a",[{x:0,y:0},{x:200,y:0}]);assert.equal(g.export()[0].settings.waypointEffects,undefined);
+});
