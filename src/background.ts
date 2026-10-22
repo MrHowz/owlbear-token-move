@@ -293,12 +293,17 @@ OBR.onReady(async()=>{
       if(!groups.running||!state.ready||!state.gm)return;
       const now=performance.now();
       // Position updates execute immediately. Network checkpoints/status never own this clock.
-      const frame=groups.tick(now);void frame.catch(console.error);
+      const frame=groups.tick(now);
+      // tick may fail/finish asynchronously, after this timer has already returned.
+      // Always send the terminal snapshot, including errors and completed cleanup.
+      void frame.then(()=>{if(!groups.running)enqueue(async()=>{void publish(false).catch(console.error);});}).catch(console.error);
       if(now-lastPublish>300&&!publisher.busy){
         lastPublish=now;
         enqueue(async()=>{if(!publisher.busy)void publish(false).catch(console.error);});
       }
-      if(!groups.running)void frame.then(()=>enqueue(async()=>{void publish(false).catch(console.error);})).catch(console.error);
+      // Switch Stop back to Play immediately when the one-shot clock expires;
+      // restoring the final pose may still be waiting for an SDK acknowledgement.
+      if(!groups.running)enqueue(async()=>{void publish(false).catch(console.error);});
     },1000/60);
     console.info(`Token Move ${VERSION}`);
     await loadScene(await OBR.scene.isReady());

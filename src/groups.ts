@@ -112,8 +112,8 @@ export class Groups {
       if(!e.motor.running)continue;
       const motor=e.motor,update=motor.tick(now),revision=motor.revision;
       if(!motor.running)e.settling=update.catch(()=>{});
-      updates.push(update.then(()=>{if(e.motor===motor&&motor.revision===revision&&!motor.running)e.message=e.config.settings.movement==="stationary"?"เอฟเฟกต์ครบหนึ่งรอบแล้ว • คืนท่าปกติอัตโนมัติ":"เดินครบ LINE แล้ว • กดเริ่มเพื่อเดินรอบใหม่";})
-        .catch(async error=>{if(e.motor!==motor||motor.revision!==revision)return;await motor.stop(false);e.message=error instanceof Error?error.message:"หยุดเพราะเกิดข้อผิดพลาด";}));
+      updates.push(update.then(()=>{if(e.motor===motor&&motor.revision===revision&&!motor.running)e.message=e.config.settings.movement==="stationary"?"เอฟเฟกต์ครบหนึ่งรอบแล้ว • พร้อมกด Play ใหม่":"เดินครบ LINE แล้ว • กดเริ่มเพื่อเดินรอบใหม่";})
+        .catch(async error=>{if(e.motor!==motor||motor.revision!==revision)return;await motor.stop(false);e.message=`หยุดเพราะเกิดข้อผิดพลาด: ${error instanceof Error?error.message:error&&typeof error==="object"&&"message" in error?String(error.message):String(error)}`;}));
     }
     await Promise.all(updates);
   }

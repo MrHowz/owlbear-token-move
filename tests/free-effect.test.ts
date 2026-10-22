@@ -52,3 +52,16 @@ test("deadline during a slow write waits for cleanup and cannot leave a late til
  let calls=0;f.adapter.edit=async(ids,recipe)=>{if(++calls===1)await gate;await original(ids,recipe);};
  const frame=f.motor.tick(250);const completed=f.motor.tick(1000);assert.equal(f.motor.running,false);release();await frame;await completed;assert.equal(f.item().rotation,25);assert.equal(f.motor.completed,true);
 });
+
+test("Loop retries a rejected scene update and continues through later cycles without pose drift",async()=>{
+ const f=fixture();await f.start("wiggle");const original=f.adapter.edit!;let attempts=0;f.adapter.edit=async(ids,recipe)=>{if(++attempts<=2)throw new Error("temporary write error");await original(ids,recipe);};
+ await f.motor.tick(100);await f.motor.tick(400);await f.motor.tick(1000);assert.equal(f.motor.running,true);assert.equal(attempts,3);await f.motor.tick(1500);assert.equal(f.item().rotation,33);await f.motor.stop();assert.equal(f.item().rotation,25);
+});
+test("an applied write with a lost reply is not mistaken for a new user rotation",async()=>{
+ const f=fixture();await f.start("wiggle");const original=f.adapter.edit!;let attempts=0;f.adapter.edit=async(ids,recipe)=>{await original(ids,recipe);if(++attempts===1)throw new Error("lost acknowledgement");};
+ await f.motor.tick(1000/6);assert.ok(Math.abs(f.item().rotation-33)<1e-6);await f.motor.tick(500);assert.equal(f.item().rotation,17);await f.motor.stop();assert.equal(f.item().rotation,25);
+});
+test("persistent scene failures end the engine instead of leaving a frozen active effect",async()=>{
+ const f=fixture();await f.start("wiggle");f.adapter.edit=async()=>{throw new Error("offline");};await f.motor.tick(0);await f.motor.tick(300);await f.motor.tick(900);await assert.rejects(f.motor.tick(2000),/offline/);await f.motor.stop(false);assert.equal(f.motor.running,false);
+});
+
