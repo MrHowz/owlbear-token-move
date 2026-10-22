@@ -7,6 +7,7 @@ export interface MotionAdapter {
   read(ids: string[]): Promise<Item[]>;
   interact(items: Item[]): Promise<Interaction>;
   commit(items: Item[]): Promise<void>;
+  edit?(ids:string[],recipe:(items:Item[])=>void):Promise<void>;
 }
 /** Frame updates stay synchronous until a final commit; maintenance never blocks frames. */
 export class Motion {

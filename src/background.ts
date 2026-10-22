@@ -1,4 +1,5 @@
 import OBR, {buildCurve, buildText, type Item} from "@owlbear-rodeo/sdk";
+import {selectionRoots,followAttachments} from "./attachments";
 import {Groups} from "./groups";
 import {OrderedPublisher} from "./publisher";
 import {COMMAND, STATE, ID, VERSION, initialState, statePackets, type Command, type CommandMessage, type State, type Point, type StatePacket} from "./shared";
@@ -21,7 +22,25 @@ const groups = new Groups({
     if (requestedEpoch!==epoch) throw new Error("Scene เปลี่ยนแล้ว กรุณาลองใหม่");
     return items;
   },
-  interact: items => OBR.interaction.startItemInteraction(items),
+  interact: async items => {
+    const requestedEpoch=epoch,ids=new Set(items.map(i=>i.id));
+    const all=await OBR.scene.items.getItemAttachments([...ids]);
+    if(requestedEpoch!==epoch)throw new Error("Scene เปลี่ยนแล้ว");
+    const before=structuredClone(all),byId=new Map(items.map(i=>[i.id,i]));
+    const expanded=all.map(i=>byId.get(i.id)??i);
+    followAttachments(expanded,before,ids);
+    const live=await OBR.interaction.startItemInteraction(expanded);
+    if(requestedEpoch!==epoch){live[1]();throw new Error("Scene เปลี่ยนแล้ว");}
+    return [(recipe:(draft:Item[])=>void)=>{const updated=live[0](draft=>{
+      const before=draft.map(i=>({...i,position:{...i.position},scale:{...i.scale}}));
+      recipe(items.map(root=>draft.find(i=>i.id===root.id)!));
+      followAttachments(draft,before,ids);
+    });return items.map(root=>updated.find(i=>i.id===root.id)!);},live[1]];
+  },
+  edit: async (ids,recipe)=>{
+    const requestedEpoch=epoch;
+    await OBR.scene.items.updateItems(ids,draft=>{if(requestedEpoch===epoch)recipe(draft);});
+  },
   commit: items => {
     const byId=new Map(items.map(i=>[i.id,i]));
     return OBR.scene.items.updateItems(items.map(i=>i.id),draft=>draft.forEach(item=>{
@@ -76,8 +95,6 @@ async function drawRoute() {
     for(const [index,p]of points.entries()){
       const repeated=points.slice(0,index).filter(other=>Math.hypot(other.x-p.x,other.y-p.y)<.01).length;
       preview.push(badge(String(index+1),{x:p.x+dpi*.18,y:p.y-dpi*(.40+repeated*.34)},dpi*.28,`LINE จุด ${index+1}${index===0?" เริ่ม":""}`));
-      if(index>0){const a=points[index-1],dx=p.x-a.x,dy=p.y-a.y,length=Math.hypot(dx,dy)||1;
-        preview.push(badge(`${index}→${index+1}`,{x:(a.x+p.x)/2-dy/length*dpi*.8,y:(a.y+p.y)/2+dx/length*dpi*.8},dpi*.16,`LINE ช่วง ${index} ไป ${index+1}`));}
     }
     await OBR.scene.local.addItems(preview);
     if(drawingEpoch!==epoch){await OBR.scene.local.deleteItems(preview.map(i=>i.id));return;}
@@ -100,7 +117,7 @@ async function requireGM() {
 async function selectedItems() {
   const ids=await OBR.player.getSelection();
   if(!ids?.length) throw new Error("เลือก Token หรือวัตถุบนแผนที่ก่อน");
-  return OBR.scene.items.getItems(ids);
+  return selectionRoots(await OBR.scene.items.getItems(ids),await OBR.scene.items.getItems());
 }
 async function save() {
   try {await OBR.scene.setMetadata({[storageKey]:{version:3,gridVersion:1,groups:groups.export()}});}

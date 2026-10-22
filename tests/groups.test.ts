@@ -9,6 +9,7 @@ function fixture(){
   const active=new Map<string,Item>();let writes=0;
   const adapter:MotionAdapter={read:async ids=>structuredClone([...scene.values()].filter(i=>ids.includes(i.id)).reverse()),
     commit:async items=>{writes++;for(const i of items)if(scene.has(i.id))scene.set(i.id,structuredClone(i));},
+    edit:async(ids,recipe)=>{const draft=ids.flatMap(id=>scene.has(id)?[structuredClone(scene.get(id)!)]:[]);recipe(draft);for(const i of draft){scene.set(i.id,structuredClone(i));active.set(i.id,structuredClone(i));}},
     interact:async items=>{let current=structuredClone(items);return [recipe=>{current=structuredClone(current);recipe(current);for(const i of current)active.set(i.id,structuredClone(i));return structuredClone(current);},()=>{}];}};
   return {g:new Groups(adapter),adapter,scene,active,writes:()=>writes,items:(ids:string[])=>ids.map(id=>structuredClone(scene.get(id)!))};
 }

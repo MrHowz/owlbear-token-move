@@ -1,12 +1,13 @@
 import type {Item} from "@owlbear-rodeo/sdk";
+import {FreeEffect} from "./free-effect";
 import {Motion, type MotionAdapter} from "./motion";
 import {defaultSettings, normalizedSettings, finitePoint, validSettings, validateConfig, type Anchor, type GroupConfig, type GroupView, type Point, type Settings} from "./shared";
 
-interface Runtime {config:GroupConfig;motor:Motion;message:string;needsStart:boolean;settling?:Promise<void>}
+interface Runtime {config:GroupConfig;motor:Motion|FreeEffect;message:string;needsStart:boolean;settling?:Promise<void>}
 export class Groups {
   private entries=new Map<string,Runtime>();
   constructor(private adapter:MotionAdapter,private clock?:()=>number){}
-  private makeMotor(){return new Motion(this.adapter,this.clock);}
+  private makeMotor(movement?:string):Motion|FreeEffect{return movement==="stationary"?new FreeEffect(this.adapter,this.clock):new Motion(this.adapter,this.clock);}
   private get(id:string){const e=this.entries.get(id);if(!e)throw new Error("ไม่พบกลุ่มนี้ กรุณาเลือกกลุ่มใหม่");return e;}
   has(id:string){return this.entries.has(id);}
   get running(){return [...this.entries.values()].some(e=>e.motor.running);}
@@ -31,14 +32,14 @@ export class Groups {
   capture(id:string,items:Item[]){
     const e=this.get(id);this.requireStopped(e);const anchors=this.anchors(items);
     this.assertAvailable(e,new Set(anchors.map(a=>a.id)));
-    e.config.anchors=anchors;e.motor=this.makeMotor();e.needsStart=true;
+    e.config.anchors=anchors;e.motor=this.makeMotor(e.config.settings.movement);e.needsStart=true;
     e.message=e.config.route?"เปลี่ยน Token แล้ว • เส้นทางเดิมยังอยู่":"เพิ่ม Token แล้ว • คลิกสร้าง LINE เพื่อเลือกช่องเริ่ม";
   }
   update(id:string,name:string,settings:Settings){
     const e=this.get(id);this.requireStopped(e);
     if(!validSettings(settings))throw new Error("ตรวจความเร็ว 0.1–20 ช่อง/วิ ระยะสั่น 0.005–0.25 ช่อง องศา 1–30 และจังหวะ 0.25–3 เท่า และเวลาพัก 0–3600 วินาที");
     const next=normalizedSettings(settings);
-    if(next.movement!==(e.config.settings.movement??"line")){e.motor=this.makeMotor();e.needsStart=true;}
+    if(next.movement!==(e.config.settings.movement??"line")){e.motor=this.makeMotor(next.movement);e.needsStart=true;}
     e.config.name=name.trim().slice(0,80)||"กลุ่มไม่มีชื่อ";e.config.settings=next;e.message="บันทึกการตั้งค่าแล้ว";
   }
   setPath(id:string,points:Point[]){
@@ -47,7 +48,7 @@ export class Groups {
     const route:Point[]=[];
     for(const p of points){const last=route.at(-1);if(!last||Math.hypot(p.x-last.x,p.y-last.y)>.01)route.push({...p});}
     if(route.length<2)throw new Error("เลือกช่องถัดไปให้ต่างจากช่องเริ่ม");
-    e.config.route=route;e.config.settings={...e.config.settings,waypointPauses:undefined,waypointEffects:undefined};e.motor=this.makeMotor();e.needsStart=true;e.message=`LINE ${route.length} จุดพร้อมแล้ว`;
+    e.config.route=route;e.config.settings={...e.config.settings,waypointPauses:undefined,waypointEffects:undefined};e.motor=this.makeMotor(e.config.settings.movement);e.needsStart=true;e.message=`LINE ${route.length} จุดพร้อมแล้ว`;
   }
   setStart(id:string,point:Point){
     const e=this.get(id);this.requireStopped(e);
@@ -55,7 +56,7 @@ export class Groups {
     const pauses=e.config.settings.waypointPauses,effects=e.config.settings.waypointEffects;
     this.setPath(id,[point,...e.config.route.slice(1)]);e.config.settings.waypointPauses=pauses;e.config.settings.waypointEffects=effects;e.message="เปลี่ยนช่องเริ่มแล้ว • จุดอื่นยังอยู่ที่เดิม";
   }
-  clearRoute(id:string){const e=this.get(id);this.requireStopped(e);e.config.route=undefined;e.motor=this.makeMotor();e.needsStart=true;}
+  clearRoute(id:string){const e=this.get(id);this.requireStopped(e);e.config.route=undefined;e.motor=this.makeMotor(e.config.settings.movement);e.needsStart=true;}
   private lineAnchors(e:Runtime):Anchor[]{
     if(!e.config.route||!e.config.anchors.length)throw new Error("เลือก Token และสร้าง LINE ก่อนเริ่มเดิน");
     const origin=e.config.route[0],reference=e.config.anchors[0].position;
@@ -75,21 +76,21 @@ export class Groups {
     if(e.motor!==previous||previous.revision!==revision)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
     this.assertAvailable(e);const s=normalizedSettings(e.config.settings);
     if(s.movement==="stationary"){
-      if(s.effect==="none")throw new Error("เลือกเอฟเฟกต์สั่นหรือดุ๊กดิ๊กสำหรับโหมดอยู่กับที่");
+      if(s.effect==="none")throw new Error("เลือกเอฟเฟกต์สั่นหรือดุ๊กดิ๊กสำหรับโหมดเอฟเฟกต์อิสระ");
       if(!e.config.anchors.length)throw new Error("เลือก Token ให้กลุ่มก่อน");
       await e.motor.start(e.config.anchors,e.config.anchors[0].position,dpi,s.speed,true,false,now,{flip:false,facing:s.facing,resume:false,stationary:true,effect:s});
-      e.message=s.effect==="shake"?"กำลังสั่นอยู่กับที่":"กำลังดุ๊กดิ๊กอยู่กับที่";return;
+      e.message=s.effect==="shake"?"กำลังสั่น • ลากย้ายได้":"กำลังดุ๊กดิ๊ก • ลากย้ายได้";return;
     }
     const anchors=this.lineAnchors(e),route=e.config.route!;
     if(e.needsStart||(s.mode==="once"&&e.motor.completed)){
       await this.place(e);
       if(e.motor!==previous||previous.revision!==revision)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
-      e.motor=this.makeMotor();
+      e.motor=this.makeMotor(e.config.settings.movement);
     }
     await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1),effect:s,waypointPauses:s.waypointPauses,waypointEffects:s.waypointEffects});
     e.needsStart=false;e.message=s.mode==="patrol"?"กำลังเดินวนตาม LINE":"กำลังเดินตาม LINE";
   }
-  async stop(id:string,commit=true){const e=this.get(id);await e.motor.stop(commit);e.message="หยุดแล้ว • กดเดินต่อได้";}
+  async stop(id:string,commit=true){const e=this.get(id);await e.motor.stop(commit);e.message=e.config.settings.movement==="stationary"?"ปิดเอฟเฟกต์แล้ว • คงตำแหน่งล่าสุด":"หยุดแล้ว • กดเดินต่อได้";}
   async stopAll(commit=true){await Promise.all([...this.entries.keys()].map(id=>this.stop(id,commit)));}
   async startAll(dpi:number,now:number){
     const errors:string[]=[];
@@ -99,9 +100,9 @@ export class Groups {
   }
   async reset(id:string){
     const e=this.get(id);this.assertAvailable(e);
-    if(e.config.settings.movement==="stationary"){await e.motor.stop();e.motor=this.makeMotor();e.message="คืนท่าเดิมแล้ว";return;}
+    if(e.config.settings.movement==="stationary"){await e.motor.stop();e.motor=this.makeMotor(e.config.settings.movement);e.message="ปิดเอฟเฟกต์แล้ว • คงตำแหน่งล่าสุด";return;}
     this.lineAnchors(e);await e.settling;await e.motor.stop();await this.place(e);
-    e.motor=this.makeMotor();e.needsStart=false;e.message="วางที่ช่องเริ่มของ LINE แล้ว";
+    e.motor=this.makeMotor(e.config.settings.movement);e.needsStart=false;e.message="วางที่ช่องเริ่มของ LINE แล้ว";
   }
   async remove(id:string){await this.get(id).motor.stop();this.entries.delete(id);}
   async clear(){await this.stopAll(false);this.entries.clear();}
@@ -137,7 +138,7 @@ export class Groups {
         const route=points?.filter((p,i)=>i===0||Math.hypot(p.x-points[i-1].x,p.y-points[i-1].y)>.01);
         candidate={id:old.id,name:old.name,anchors:old.anchors,settings:old.settings,route:route&&route.length>=2?route:undefined};
       }
-      if(validateConfig(candidate)&&!this.has(candidate.id))this.entries.set(candidate.id,{config:{...structuredClone(candidate),settings:normalizedSettings(candidate.settings)},motor:this.makeMotor(),message:"โหลดกลุ่มแล้ว • กดเริ่มเมื่อพร้อม",needsStart:true});
+      if(validateConfig(candidate)&&!this.has(candidate.id))this.entries.set(candidate.id,{config:{...structuredClone(candidate),settings:normalizedSettings(candidate.settings)},motor:this.makeMotor(candidate.settings.movement),message:"โหลดกลุ่มแล้ว • กดเริ่มเมื่อพร้อม",needsStart:true});
     }
   }
   views():GroupView[]{return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,pauseRemaining:m.pauseRemaining,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));}
