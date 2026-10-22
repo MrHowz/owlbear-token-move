@@ -1,5 +1,6 @@
 import OBR from "@owlbear-rodeo/sdk";
 import {COMMAND,STATE,VERSION,initialState,defaultSettings,normalizedSettings,durationMs,type PauseEffect,type Command,type GroupView,type State,type StatePacket,type Settings} from "./shared";
+import {effectCycleMs} from "./effects";
 import "./style.css";
 
 const paths={add:"M12 5v14M5 12h14",line:"M5 18V9a4 4 0 0 1 4-4h10m-4-4 4 4-4 4M5 18h.01",loop:"M5 7h13l-4-4m4 4-4 4M19 17H6l4 4m-4-4 4-4",flip:"M12 3v18M8 7l-5 5 5 5V7Zm8 0 5 5-5 5V7Z",play:"m8 4 12 8-12 8V4Z",stop:"M6 6h12v12H6Z",more:"M5 12h.01M12 12h.01M19 12h.01",pin:"M12 21S5 13 5 9a7 7 0 1 1 14 0c0 4-7 12-7 12ZM12 6v6M9 9h6",eye:"M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6",undo:"M9 5 3 11l6 6M3 11h10a7 7 0 0 1 7 7",check:"m5 12 4 4L20 5",close:"m6 6 12 12M6 18 18 6",help:"M9 8a3 3 0 0 1 6 0c0 3-3 2-3 5m0 4h.01"};
@@ -8,7 +9,7 @@ document.querySelector("#app")!.innerHTML=`
 <header class="topbar"><h1>Token Move <span>LINE · FX</span></h1><div class="global-controls"><button id="start-all" class="icon-button" title="เริ่มทุกกลุ่ม" aria-label="เริ่มทุกกลุ่ม">${icon("play")}</button><button id="stop-all" class="icon-button" title="หยุดทุกกลุ่ม" aria-label="หยุดทุกกลุ่ม">${icon("stop")}</button></div></header>
 <div id="demo-banner" hidden>ตัวอย่างหน้าตา · ใช้งานจริงผ่าน Owlbear</div>
 <div class="toolbar"><button id="create" class="add-button">${icon("add")}<span>เพิ่มกลุ่มจาก Token ที่เลือก</span></button><button id="help" class="icon-button help-button" title="วิธีใช้งาน" aria-label="วิธีใช้งาน" aria-expanded="false">${icon("help")}</button></div>
-<section id="help-panel" class="help-panel" hidden><strong>เลือก Token → เพิ่มกลุ่ม → เลือกการเคลื่อนที่ → กดเริ่ม</strong><p>เดิน LINE: คลิกช่องเริ่มและช่องถัดไป คลิกช่องล่าสุดซ้ำหรือ Enter เพื่อบันทึก</p><p>เอฟเฟกต์อิสระ: เลือกสั่นหรือดุ๊กดิ๊กแล้วกด ▶ ได้เลย ไม่ต้องวาด LINE และยังลากย้าย/หมุนด้วยเครื่องมืออื่นได้<br>สั่นขยับตำแหน่งเล็กน้อย · ดุ๊กดิ๊กหมุนซ้าย–ขวารอบองศาเดิม ใช้พร้อม LINE ได้</p><p>⋯ ตั้งจุดพักระหว่างทาง หรือปรับระยะสั่น องศาดุ๊กดิ๊ก และจังหวะ · เมื่อหยุดจะคืนองศาเดิม<br>Backspace ย้อนจุด · Esc ยกเลิก · หยุดกลุ่มก่อนแก้ค่า</p></section>
+<section id="help-panel" class="help-panel" hidden><strong>เลือก Token → เพิ่มกลุ่ม → เลือกการเคลื่อนที่ → กดเริ่ม</strong><p>เดิน LINE: คลิกช่องเริ่มและช่องถัดไป คลิกช่องล่าสุดซ้ำหรือ Enter เพื่อบันทึก</p><p>เอฟเฟกต์อิสระ: เลือกสั่นหรือดุ๊กดิ๊กแล้วกด ▶ ได้เลย ไม่ต้องวาด LINE และยังลากย้าย/หมุนด้วยเครื่องมืออื่นได้<br>เลือกวนซ้ำ หรือครั้งเดียวเพื่อหยุดและคืนท่าปกติอัตโนมัติ<br>สั่นขยับตำแหน่งเล็กน้อย · ดุ๊กดิ๊กหมุนซ้าย–ขวารอบองศาเดิม ใช้พร้อม LINE ได้</p><p>⋯ ตั้งจุดพักระหว่างทาง หรือปรับระยะสั่น องศาดุ๊กดิ๊ก และจังหวะ · เมื่อหยุดจะคืนองศาเดิม<br>Backspace ย้อนจุด · Esc ยกเลิก · หยุดกลุ่มก่อนแก้ค่า</p></section>
 <div class="list-heading"><span id="group-count">0 กลุ่ม</span><span id="running-count"></span></div>
 <div id="column-headings" class="column-headings" aria-hidden="true"><span>LINE</span><span>ช่อง/วิ</span><span>วนกลับ</span><span>Flip</span><span>เดิน</span><span>ตั้งค่า</span></div>
 <section id="group-list" aria-label="กลุ่มการเดิน"></section>
@@ -87,6 +88,7 @@ function makeRow(id:string):Row{
   const element=document.createElement("article");element.className="group-row";element.dataset.group=id;
   element.innerHTML=`<div class="row-heading"><button class="row-name" data-action="more"><span class="dot"></span><strong></strong></button><small class="row-meta"></small><span class="row-phase"></span></div>
   <div class="effect-controls"><label><span class="sr-only">การเคลื่อนที่</span><select data-field="movement"><option value="line">เดิน LINE</option><option value="stationary">เอฟเฟกต์อิสระ</option></select></label><label><span class="sr-only">เอฟเฟกต์</span><select data-field="effect"><option value="none">ปกติ · ไม่ใส่เอฟเฟกต์</option><option value="shake">สั่น</option><option value="wiggle">ดุ๊กดิ๊ก · หมุนซ้าย–ขวา</option></select></label></div>
+  <label class="repeat-control" hidden>การเล่นเอฟเฟกต์<select data-field="repeat"><option value="patrol">วนซ้ำ (Loop)</option><option value="once">ครั้งเดียว · คืนท่าปกติอัตโนมัติ</option></select><small class="effect-cycle"></small></label>
   <div class="row-controls"><button data-action="line" class="round route-button">${icon("line")}</button><label class="speed-wrap"><span class="sr-only">ความเร็ว</span><input data-field="speed" class="round speed" type="number" min="0.1" max="20" step="0.1" inputmode="decimal"></label><button data-action="loop" class="round" aria-pressed="true">${icon("loop")}</button><button data-action="flip" class="round" aria-pressed="true">${icon("flip")}</button><button data-action="play" class="round play-button">${icon("play")}</button><button data-action="more" class="round more-button" aria-expanded="false">${icon("more")}</button></div>
   <div class="row-progress" aria-hidden="true"><span></span></div><p class="row-warning" hidden></p>
   <section class="row-details" hidden><label class="detail-name">ชื่อกลุ่ม<input data-field="name" maxlength="80"></label><div class="detail-actions"><button data-action="pickStart" class="secondary">${icon("pin")}เลือกจุดเริ่ม</button><button data-action="showRoute" class="secondary">${icon("eye")}<span>แสดงเส้นทาง</span></button></div>
@@ -109,6 +111,7 @@ function makeRow(id:string):Row{
     field.addEventListener("input",()=>{
       if(key==="name")changed(id,{name:field.value});
       else if(key==="movement"){const fixed=field.value==="stationary",s=normalizedSettings(editing(group(id)!).settings);changed(id,{},{movement:fixed?"stationary":"line",...(fixed&&s.effect==="none"?{effect:"wiggle" as const}:{})});}
+      else if(key==="repeat")changed(id,{},{mode:field.value==="once"?"once":"patrol"});
       else if(key==="effect")changed(id,{},{effect:field.value==="shake"?"shake":field.value==="wiggle"?"wiggle":"none"});
       else if(["speed","shakeDistance","wiggleAngle","effectSpeed"].includes(key))changed(id,{},{[key]:(field as HTMLInputElement).valueAsNumber});
       else if(key==="smooth")changed(id,{},{smooth:(field as HTMLInputElement).checked});else changed(id,{},{facing:field.value==="left"?"left":"right"});
@@ -132,7 +135,7 @@ function render(){
     row.element.classList.toggle("selected",state.selectedId===g.id);row.element.classList.toggle("running",g.running);row.element.classList.toggle("busy",!!busy);row.element.classList.toggle("dirty",drafts.has(g.id));
     row.element.setAttribute("aria-busy",String(!!busy));
     text(row.name,d.name||g.name);text(row.meta,`${g.count} Token · ${fixed?"เอฟเฟกต์อิสระ":g.route?`${g.route.length} จุด`:"ยังไม่มี LINE"}`);
-    text(row.phase,g.running?(g.pauseRemaining?`จุด ${(g.waypointIndex??0)+1} · พัก ${Math.ceil(g.pauseRemaining)} วิ`:fixed?(s.effect==="shake"?"กำลังสั่น":"ดุ๊กดิ๊ก"):`${g.direction==="return"?(g.waypointIndex??0)+2:(g.waypointIndex??1)} → ${(g.waypointIndex??1)+1} · ${Math.round(g.progress*100)}%`):ready?(!fixed&&g.progress>0&&g.progress<1?"พัก":!fixed&&g.settings.mode==="once"&&g.progress>=1?"จบรอบ":"พร้อม"):"วาด LINE");
+    text(row.phase,g.running?(g.pauseRemaining?`จุด ${(g.waypointIndex??0)+1} · พัก ${Math.ceil(g.pauseRemaining)} วิ`:fixed?(s.effect==="shake"?"กำลังสั่น":"ดุ๊กดิ๊ก"):`${g.direction==="return"?(g.waypointIndex??0)+2:(g.waypointIndex??1)} → ${(g.waypointIndex??1)+1} · ${Math.round(g.progress*100)}%`):ready?(!fixed&&g.progress>0&&g.progress<1?"พัก":g.settings.mode==="once"&&g.progress>=1?"จบรอบ":"พร้อม"):"วาด LINE");
     row.bar.style.width=`${g.running?Math.max(0,Math.min(100,g.progress*100)):g.progress===1?100:0}%`;
     row.details.hidden=!expanded;row.buttons.more.setAttribute("aria-expanded",String(expanded));
     row.element.querySelector(".row-name")!.setAttribute("aria-expanded",String(expanded));
@@ -140,8 +143,8 @@ function render(){
     label(row.buttons.line,`${hasRoute?"วาด LINE ใหม่":"สร้าง LINE"} — ${d.name}`);
     row.fields.speed.disabled=locked||fixed;row.fields.speed.setAttribute("aria-label",`ความเร็ว — ${d.name}`);row.fields.speed.title="ช่องต่อวินาที · ปรับแล้วบันทึกอัตโนมัติ";
     if(document.activeElement!==row.fields.speed&&row.fields.speed.value!==String(d.settings.speed))row.fields.speed.value=String(d.settings.speed);
-    for(const key of ["loop","flip"] as const){row.buttons[key].disabled=locked||fixed;row.buttons[key].setAttribute("aria-pressed",String(key==="loop"?d.settings.mode==="patrol":d.settings.flip));}
-    label(row.buttons.loop,`วนไปกลับ${d.settings.mode==="patrol"?" เปิด":" ปิด"} — ${d.name}`);label(row.buttons.flip,`Flip ตามทิศเดิน${d.settings.flip?" เปิด":" ปิด"} — ${d.name}`);
+    for(const key of ["loop","flip"] as const){row.buttons[key].disabled=locked||(fixed&&key==="flip");row.buttons[key].setAttribute("aria-pressed",String(key==="loop"?d.settings.mode==="patrol":d.settings.flip));}
+    label(row.buttons.loop,`${fixed?(d.settings.mode==="patrol"?"วนซ้ำ (Loop)":"ครั้งเดียว · คืนท่าปกติอัตโนมัติ"):`วนไปกลับ${d.settings.mode==="patrol"?" เปิด":" ปิด"}`} — ${d.name}`);label(row.buttons.flip,`Flip ตามทิศเดิน${d.settings.flip?" เปิด":" ปิด"} — ${d.name}`);
     row.buttons.play.disabled=unavailable||picking||!ready||!g.count;
     row.buttons.play.classList.toggle("is-stop",g.running);
     const playKind=g.running?"stop":"play";if(row.buttons.play.dataset.icon!==playKind){row.buttons.play.dataset.icon=playKind;row.buttons.play.innerHTML=icon(playKind);}
@@ -155,6 +158,9 @@ function render(){
       if(document.activeElement!==field)field.value=String(s[key]);
     }
     (row.fields.effect as HTMLSelectElement).options[0].disabled=fixed;
+    row.element.querySelector<HTMLElement>(".repeat-control")!.hidden=!fixed;
+    row.fields.repeat.disabled=locked;row.fields.repeat.value=s.mode;row.fields.repeat.setAttribute("aria-label",`การเล่นเอฟเฟกต์ — ${d.name}`);
+    text(row.element.querySelector(".effect-cycle")!,Number.isFinite(s.effectSpeed)&&s.effectSpeed>=.25&&s.effectSpeed<=3?`หนึ่งรอบ ≈ ${(effectCycleMs(s)/1000).toLocaleString("th-TH",{maximumFractionDigits:2})} วินาที · ปรับได้ที่จังหวะเอฟเฟกต์ใน ⋯`:"ตรวจจังหวะเอฟเฟกต์ 0.25–3 เท่า");
     for(const key of ["shakeDistance","wiggleAngle","effectSpeed"] as const){const active=key==="effectSpeed"?(s.effect!=="none"||s.waypointEffects?.some(e=>e==="wiggle"||e==="shake")===true):key==="shakeDistance"?(s.effect==="shake"||s.waypointEffects?.includes("shake")===true):(s.effect==="wiggle"||s.waypointEffects?.includes("wiggle")===true);row.element.querySelector<HTMLElement>(`[data-option="${key}"]`)!.hidden=!active;row.fields[key].disabled=locked||!active;}
     row.element.querySelector<HTMLElement>(".effect-options")!.hidden=s.effect==="none"&&!s.waypointEffects?.some(e=>e==="wiggle"||e==="shake");
     row.buttons.pickStart.disabled=locked||fixed||!hasRoute;row.buttons.capture.disabled=locked;

@@ -6,3 +6,5 @@
 .point-details li{padding:10px 0;border-bottom:1px solid #ffffff18}.point-details .leg-time{display:block;color:#a4e4cf;font-size:12px}.point-details li>select{width:100%;padding:8px;border:1px solid #66627b;background:#252530;color:#fff;border-radius:8px;font:inherit}.row-phase{max-width:170px}.point-details li label{padding:8px 0}
 
 .point-details ol{max-height:360px}.point-details li label>span:first-child{min-width:0}
+
+.repeat-control{display:grid;gap:7px;font-size:12px;margin:8px 0 12px;color:#ddd}.repeat-control select{padding:9px;border:1px solid #8175ac;border-radius:8px;background:#252530;color:#fff;font:inherit}.repeat-control small{font-size:11px;line-height:1.5;color:#aaa}.repeat-control[hidden]{display:none}

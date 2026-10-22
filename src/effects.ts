@@ -9,3 +9,6 @@ export function effectOffset(options:EffectOptions,elapsedMs:number,dpi:number){
   if(options.effect==="shake")return {x:Math.sin(t*Math.PI*14)*dpi*options.shakeDistance,y:Math.sin(t*Math.PI*22)*dpi*options.shakeDistance*.65,rotation:0};
   return {x:0,y:0,rotation:0};
 }
+
+/** One full left/right wiggle, or one common period of both shake axes. */
+export function effectCycleMs(options:Pick<EffectOptions,"effect"|"effectSpeed">){return (options.effect==="wiggle"?2000/3:1000)/options.effectSpeed;}

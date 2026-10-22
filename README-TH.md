@@ -1,3 +1,25 @@
+# Token Move 2.8 — เอฟเฟกต์อิสระแบบวนซ้ำหรือครั้งเดียว
+
+## เลือกวิธีเล่นเอฟเฟกต์
+เลือกเอฟเฟกต์อิสระ → สั่น/ดุ๊กดิ๊ก → ช่อง **การเล่นเอฟเฟกต์**
+- **วนซ้ำ (Loop)**: เล่นต่อเนื่องจนกดหยุด
+- **ครั้งเดียว · คืนท่าปกติอัตโนมัติ**: เล่นครบหนึ่งรอบแล้วหยุดเอง ไม่ต้องกด ■
+ปุ่มวนซ้ำวงกลมใช้สลับตัวเลือกเดียวกันได้ โดยต้องหยุดก่อนแก้ค่า
+
+หนึ่งรอบของดุ๊กดิ๊กคือหมุนทั้งซ้ายและขวาครบแล้วคืนองศาฐาน ส่วนสั่นเล่นครบหนึ่งคาบร่วมของทั้งสองแกนแล้วคืนตำแหน่งฐาน
+จังหวะ 1 เท่า: ดุ๊กดิ๊กประมาณ 0.67 วินาที / สั่น 1 วินาที หน้าจอแสดงเวลาต่อรอบให้ ปรับจังหวะใน ⋯ เพื่อให้รอบเร็วหรือช้าลง
+ถ้าระหว่างเล่นใช้เครื่องมือย้ายหรือหมุน Token ระบบจะคืนท่าที่ตำแหน่ง/องศาฐานล่าสุด ไม่ย้อนกลับไปจุดเก่า
+กด ▶ อีกครั้งเพื่อเล่นรอบใหม่ได้ และยังใช้กับชุด attach ได้ตามเดิม
+
+## อัปเดต
+อัปโหลดเนื้อหาภายใน token-move-v2.8-source.zip ไปที่ root ของ repository เดิมแล้ว Commit main ครั้งเดียว
+รอ Cloudflare deploy เสร็จ ตรวจ /manifest.json ให้เป็น 2.8.0 แล้วหยุดทุกกลุ่มและรีโหลดห้อง Owlbear
+ไม่ต้องเปลี่ยน URL ติดตั้ง https://owlbear-token-move.pages.dev/manifest.json
+ชุด source ไม่รวม dist, node_modules, netlify.toml
+ผ่าน 86 tests และ build; ตรวจเล่นครั้งเดียวแล้วคืนท่าอัตโนมัติในห้องจำลอง SDK ยังไม่ได้เผยแพร่หรือทดสอบในห้องจริง
+
+---
+
 # Token Move 2.7 — attach และเอฟเฟกต์อิสระ
 
 ## สิ่งที่เปลี่ยน
@@ -25,11 +47,11 @@
 รับตำแหน่ง/องศาใหม่จากเครื่องมือเมื่อการแก้ไขนั้นส่งเข้าฉากแล้ว ปรับได้ต่อเนื่องหลังเครื่องมือจบการลาก
 
 ## ตรวจสอบและอัปเดต
-ผ่าน 80 tests และ TypeScript/Vite build รวมถึงทดลอง SDK ห้องจำลอง: เลือกชิ้นแนบซ้อนสองชั้น, เดิน LINE ทั้งชุด, ย้ายและหมุนระหว่างเปิดเอฟเฟกต์, ปิดแล้วคงท่าล่าสุด
+ผ่าน 86 tests และ TypeScript/Vite build รวมถึงทดลอง SDK ห้องจำลอง: เลือกชิ้นแนบซ้อนสองชั้น, เดิน LINE ทั้งชุด, ย้ายและหมุนระหว่างเปิดเอฟเฟกต์, ปิดแล้วคงท่าล่าสุด
 ยังไม่ได้เผยแพร่หรือทดสอบเครื่องมือ/ส่วนขยายทุกตัวในห้อง Owlbear จริง
-อัปโหลดเนื้อหาภายใน token-move-v2.7-source.zip ไปที่ root ของ repository MrHowz/owlbear-token-move แล้ว Commit ลง main ครั้งเดียว
+อัปโหลดเนื้อหาภายใน token-move-v2.8-source.zip ไปที่ root ของ repository MrHowz/owlbear-token-move แล้ว Commit ลง main ครั้งเดียว
 Cloudflare: Build npm run build, Output dist, NODE_VERSION=22
-รอ deploy สำเร็จแล้วตรวจ https://owlbear-token-move.pages.dev/manifest.json เป็น 2.7.0 จากนั้นหยุดทุกกลุ่มและรีโหลดห้อง
+รอ deploy สำเร็จแล้วตรวจ https://owlbear-token-move.pages.dev/manifest.json เป็น 2.8.0 จากนั้นหยุดทุกกลุ่มและรีโหลดห้อง
 ไม่ต้องเปลี่ยน URL ติดตั้ง ไม่มี dist/node_modules/netlify.toml ในชุด source
 
 ---
@@ -65,14 +87,14 @@ Cloudflare: Build npm run build, Output dist, NODE_VERSION=22
 บันทึกการตั้งค่าในฉากได้; รีโหลดโหลดค่าโดยไม่เริ่มเดินเอง แต่ไม่เก็บสถานะนับเวลาค้าง
 
 ## อัปเดต GitHub / Cloudflare
-อัปโหลดเนื้อหาภายใน token-move-v2.7-source.zip ไปที่ root ของ repository เดิมแล้ว Commit ลง main ครั้งเดียว ไม่ต้องอัปโหลด ZIP หรือซ้อนโฟลเดอร์ source
+อัปโหลดเนื้อหาภายใน token-move-v2.8-source.zip ไปที่ root ของ repository เดิมแล้ว Commit ลง main ครั้งเดียว ไม่ต้องอัปโหลด ZIP หรือซ้อนโฟลเดอร์ source
 Cloudflare: Framework None, Build npm run build, Output dist, NODE_VERSION=22
-เมื่อ deploy เสร็จให้ตรวจ /manifest.json เป็น 2.7.0 แล้วหยุดทุกกลุ่มและรีโหลดห้อง Owlbear
+เมื่อ deploy เสร็จให้ตรวจ /manifest.json เป็น 2.8.0 แล้วหยุดทุกกลุ่มและรีโหลดห้อง Owlbear
 ลิงก์เดิม https://owlbear-token-move.pages.dev/manifest.json
 ชุด source ไม่รวม node_modules, dist หรือ netlify.toml; Cloudflare ไม่ต้องใช้ netlify.toml ไฟล์เก่าบน GitHub ที่ยังอยู่ไม่มีผลกับ Cloudflare
 hosting.zip เป็นไฟล์ build พร้อมใช้สำหรับโฮสต์โดยตรง ไม่ใช้แทน source ใน GitHub
 
 ## การตรวจสอบ
-80 tests ผ่านและ TypeScript/Vite build สำเร็จ
+86 tests ผ่านและ TypeScript/Vite build สำเร็จ
 ทดสอบ UI เวลาเดินเปลี่ยนตามความเร็ว, การตั้งเวลาพักและดุ๊กดิ๊กเฉพาะจุด, หมายเลขบนแผนที่ และโหลดค่าหลังรีโหลดในห้องจำลอง SDK ภายในเครื่อง
 ยังไม่ได้อัปโหลด GitHub/Cloudflare หรือทดสอบในห้อง Owlbear จริง

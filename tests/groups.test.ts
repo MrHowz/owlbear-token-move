@@ -166,3 +166,10 @@ test("per-point effects survive hydration and reject malformed values",()=>{
  g.setStart("a",{x:20,y:0});assert.deepEqual(g.export()[0].settings.waypointEffects,["inherit","wiggle"]);
  g.setPath("a",[{x:0,y:0},{x:200,y:0}]);assert.equal(g.export()[0].settings.waypointEffects,undefined);
 });
+
+test("free effect Once stops automatically and Start All respects each group's loop choice",async()=>{
+ const f=fixture(),g=f.g;g.create("once",f.items(["one"]));g.update("once","once",{...defaultSettings,movement:"stationary",effect:"wiggle",mode:"once"});
+ g.create("loop",f.items(["two"]));g.update("loop","loop",{...defaultSettings,movement:"stationary",effect:"shake",mode:"patrol"});
+ await g.startAll(100,0);await g.tick(200);await g.tick(1000);assert.equal(g.views()[0].running,false);assert.match(g.views()[0].message,/เอฟเฟกต์ครบ/);assert.equal(f.scene.get("one")!.rotation,25);assert.equal(g.views()[1].running,true);
+ await g.start("once",100,2000);await g.tick(2200);assert.equal(g.views()[0].running,true);await g.stopAll();
+});

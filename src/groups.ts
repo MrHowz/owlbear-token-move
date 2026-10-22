@@ -78,7 +78,7 @@ export class Groups {
     if(s.movement==="stationary"){
       if(s.effect==="none")throw new Error("เลือกเอฟเฟกต์สั่นหรือดุ๊กดิ๊กสำหรับโหมดเอฟเฟกต์อิสระ");
       if(!e.config.anchors.length)throw new Error("เลือก Token ให้กลุ่มก่อน");
-      await e.motor.start(e.config.anchors,e.config.anchors[0].position,dpi,s.speed,true,false,now,{flip:false,facing:s.facing,resume:false,stationary:true,effect:s});
+      await e.motor.start(e.config.anchors,e.config.anchors[0].position,dpi,s.speed,s.mode==="patrol",false,now,{flip:false,facing:s.facing,resume:false,stationary:true,effect:s});
       e.message=s.effect==="shake"?"กำลังสั่น • ลากย้ายได้":"กำลังดุ๊กดิ๊ก • ลากย้ายได้";return;
     }
     const anchors=this.lineAnchors(e),route=e.config.route!;
@@ -112,7 +112,7 @@ export class Groups {
       if(!e.motor.running)continue;
       const motor=e.motor,update=motor.tick(now),revision=motor.revision;
       if(!motor.running)e.settling=update.catch(()=>{});
-      updates.push(update.then(()=>{if(e.motor===motor&&motor.revision===revision&&!motor.running)e.message="เดินครบ LINE แล้ว • กดเริ่มเพื่อเดินรอบใหม่";})
+      updates.push(update.then(()=>{if(e.motor===motor&&motor.revision===revision&&!motor.running)e.message=e.config.settings.movement==="stationary"?"เอฟเฟกต์ครบหนึ่งรอบแล้ว • คืนท่าปกติอัตโนมัติ":"เดินครบ LINE แล้ว • กดเริ่มเพื่อเดินรอบใหม่";})
         .catch(async error=>{if(e.motor!==motor||motor.revision!==revision)return;await motor.stop(false);e.message=error instanceof Error?error.message:"หยุดเพราะเกิดข้อผิดพลาด";}));
     }
     await Promise.all(updates);
