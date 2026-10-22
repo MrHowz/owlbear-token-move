@@ -17,6 +17,12 @@ export class Motion {
   private effect:EffectOptions={...noEffect};
   private effectStarted=0;
   private stationary=false;
+  private pauses:number[]=[];
+  private waitUntil?:number;
+  private savedPause=0;
+  private lastTick=0;
+  get pauseRemaining(){return this.running&&this.waitUntil!==undefined?Math.max(0,this.waitUntil-this.lastTick)/1000:0;}
+  get completed(){return !this.running&&this.progress>=1&&this.savedPause===0;}
   private from: Point[] = [];
   private target: Point[] = [];
   private stops: Point[][] = [];
@@ -76,7 +82,7 @@ export class Motion {
   /** Await I/O only for lifecycle coordination or diagnostics, never for frame scheduling. */
   async waitForMaintenance(){await this.renewal;await this.commits;}
 
-  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[];stationary?:boolean;effect?:EffectOptions} = {flip:false,facing:"right",resume:false}) {
+  async start(originals: Anchor[], b: Point, dpi: number, speed: number, patrol: boolean, smooth: boolean, now: number, options: {flip:boolean;facing:Facing;resume:boolean;waypoints?:Point[];stationary?:boolean;effect?:EffectOptions;waypointPauses?:number[]} = {flip:false,facing:"right",resume:false}) {
     if (!originals.length) throw new Error("เลือก Token ให้กลุ่มก่อน");
     const stopped=this.stop(),generation=this.generation;
     await stopped;
@@ -90,11 +96,14 @@ export class Motion {
     this.stationary=options.stationary===true;this.effect={...(options.effect??noEffect)};
     const points=options.waypoints?.length?options.waypoints:[b];
     this.stops=[originals.map(i=>({...i.position})),...points.map(point=>originals.map(i=>({x:i.position.x+point.x-originals[0].position.x,y:i.position.y+point.y-originals[0].position.y})))];
+    this.pauses=options.waypointPauses??[];
+    if(!options.resume||!this.routeStarted)this.savedPause=0;
+    this.waitUntil=undefined;
     this.dpi = dpi; this.speed = speed; this.patrol = patrol; this.smooth = smooth;
     if (!options.resume || !this.routeStarted) {this.goingHome=false;this.targetIndex=1;}
     if (!patrol && this.goingHome) {
       // A one-way route continues from the paused cell toward the next outward stop.
-      this.goingHome=false;this.targetIndex=Math.min(this.stops.length-1,this.targetIndex+1);
+      this.savedPause=0;this.goingHome=false;this.targetIndex=Math.min(this.stops.length-1,this.targetIndex+1);
     }
     this.targetIndex=Math.max(0,Math.min(this.stops.length-1,this.targetIndex));
     this.flip = options.flip&&!this.stationary; this.facing = options.facing;
@@ -107,8 +116,9 @@ export class Motion {
     this.interaction = interaction;
     this.started=this.clock?.()??now;
     this.effectStarted=this.started;this.renewed = this.started; this.running = true; this.routeStarted = true;
-    this.setProgress(0);
-    this.apply(0,this.started);
+    this.lastTick=this.started;
+    if(this.savedPause>0){this.waitUntil=this.started+this.savedPause;this.started-=this.duration;this.savedPause=0;this.setProgress(1);this.apply(1,this.lastTick);}
+    else{this.setProgress(0);this.apply(0,this.started);}
   }
   private cleanPose():Item[]{return this.latest.map((item,i)=>({...item,position:{...this.basePositions[i]},...(this.effect.effect==="wiggle"?{rotation:this.rotations[i]}:{})}));}
   private apply(t: number,now:number) {
@@ -139,6 +149,7 @@ export class Motion {
   async tick(now: number) {
     if(this.maintenanceError){const error=this.maintenanceError;this.maintenanceError=undefined;throw error;}
     if (!this.running || !this.interaction) return;
+    this.lastTick=now;
     if(this.replacement) {
       const next=this.replacement;this.replacement=undefined;
       this.interaction[1]();this.interaction=next;this.renewed=now;
@@ -151,7 +162,10 @@ export class Motion {
       const t=Math.min(1,Math.max(0,(now-this.started)/this.duration));
       this.setProgress(t);this.apply(t,now);
       if(t<1)return;
-      const arrived=this.started+this.duration;
+      const arrival=this.started+this.duration;
+      if(this.waitUntil===undefined)this.waitUntil=arrival+(this.pauses[this.targetIndex]??0)*1000;
+      if(now<this.waitUntil)return;
+      const arrived=this.waitUntil;this.waitUntil=undefined;
       if(!this.goingHome&&this.targetIndex===this.stops.length-1) {
         if(!this.patrol){await this.stop();return;}
         this.goingHome=true;
@@ -160,7 +174,7 @@ export class Motion {
       this.beginLeg(arrived);this.setProgress(0);this.apply(0,now);
       // Skip complete cycles after a long browser suspension without shortcutting corners.
       if(this.patrol&&(this.targetIndex===1&&!this.goingHome)) {
-        const cycle=2*this.stops.slice(1).reduce((sum,stop,i)=>sum+Math.max(...stop.map((p,j)=>durationMs(this.stops[i][j],p,this.dpi,this.speed))),0);
+        const cycle=2*this.stops.slice(1).reduce((sum,stop,i)=>sum+Math.max(...stop.map((p,j)=>durationMs(this.stops[i][j],p,this.dpi,this.speed))),0)+(this.pauses[0]??0)*1000+(this.pauses[this.stops.length-1]??0)*1000+2*this.pauses.slice(1,this.stops.length-1).reduce((a,b)=>a+b*1000,0);
         if(now-this.started>=cycle)this.started+=Math.floor((now-this.started)/cycle)*cycle;
       }
     }
@@ -170,6 +184,8 @@ export class Motion {
   async stop(commit = true) {
     const wasRunning = this.running;
     if(commit&&!wasRunning&&!this.interaction&&!this.replacement){await this.commits;return;}
+    if(wasRunning)this.savedPause=this.waitUntil===undefined?0:Math.max(0,this.waitUntil-this.lastTick);
+    this.waitUntil=undefined;
     this.running = false;
     const generation=++this.generation;
     this.maintenanceError=undefined;

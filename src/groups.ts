@@ -36,7 +36,7 @@ export class Groups {
   }
   update(id:string,name:string,settings:Settings){
     const e=this.get(id);this.requireStopped(e);
-    if(!validSettings(settings))throw new Error("ตรวจความเร็ว 0.1–20 ช่อง/วิ ระยะสั่น 0.005–0.25 ช่อง องศา 1–30 และจังหวะ 0.25–3 เท่า");
+    if(!validSettings(settings))throw new Error("ตรวจความเร็ว 0.1–20 ช่อง/วิ ระยะสั่น 0.005–0.25 ช่อง องศา 1–30 และจังหวะ 0.25–3 เท่า และเวลาพัก 0–3600 วินาที");
     const next=normalizedSettings(settings);
     if(next.movement!==(e.config.settings.movement??"line")){e.motor=this.makeMotor();e.needsStart=true;}
     e.config.name=name.trim().slice(0,80)||"กลุ่มไม่มีชื่อ";e.config.settings=next;e.message="บันทึกการตั้งค่าแล้ว";
@@ -47,12 +47,13 @@ export class Groups {
     const route:Point[]=[];
     for(const p of points){const last=route.at(-1);if(!last||Math.hypot(p.x-last.x,p.y-last.y)>.01)route.push({...p});}
     if(route.length<2)throw new Error("เลือกช่องถัดไปให้ต่างจากช่องเริ่ม");
-    e.config.route=route;e.motor=this.makeMotor();e.needsStart=true;e.message=`LINE ${route.length} จุดพร้อมแล้ว`;
+    e.config.route=route;e.config.settings={...e.config.settings,waypointPauses:undefined};e.motor=this.makeMotor();e.needsStart=true;e.message=`LINE ${route.length} จุดพร้อมแล้ว`;
   }
   setStart(id:string,point:Point){
     const e=this.get(id);this.requireStopped(e);
     if(!finitePoint(point)||!e.config.route)throw new Error("สร้าง LINE ก่อนเปลี่ยนช่องเริ่ม");
-    this.setPath(id,[point,...e.config.route.slice(1)]);e.message="เปลี่ยนช่องเริ่มแล้ว • จุดอื่นยังอยู่ที่เดิม";
+    const pauses=e.config.settings.waypointPauses;
+    this.setPath(id,[point,...e.config.route.slice(1)]);e.config.settings.waypointPauses=pauses;e.message="เปลี่ยนช่องเริ่มแล้ว • จุดอื่นยังอยู่ที่เดิม";
   }
   clearRoute(id:string){const e=this.get(id);this.requireStopped(e);e.config.route=undefined;e.motor=this.makeMotor();e.needsStart=true;}
   private lineAnchors(e:Runtime):Anchor[]{
@@ -80,12 +81,12 @@ export class Groups {
       e.message=s.effect==="shake"?"กำลังสั่นอยู่กับที่":"กำลังดุ๊กดิ๊กอยู่กับที่";return;
     }
     const anchors=this.lineAnchors(e),route=e.config.route!;
-    if(e.needsStart||(s.mode==="once"&&e.motor.progress>=1)){
+    if(e.needsStart||(s.mode==="once"&&e.motor.completed)){
       await this.place(e);
       if(e.motor!==previous||previous.revision!==revision)throw new Error("ยกเลิกการเริ่มเดินแล้ว");
       e.motor=this.makeMotor();
     }
-    await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1),effect:s});
+    await e.motor.start(anchors,route[route.length-1],dpi,s.speed,s.mode==="patrol",s.smooth,now,{flip:s.flip,facing:s.facing,resume:true,waypoints:route.slice(1),effect:s,waypointPauses:s.waypointPauses});
     e.needsStart=false;e.message=s.mode==="patrol"?"กำลังเดินวนตาม LINE":"กำลังเดินตาม LINE";
   }
   async stop(id:string,commit=true){const e=this.get(id);await e.motor.stop(commit);e.message="หยุดแล้ว • กดเดินต่อได้";}
@@ -139,5 +140,5 @@ export class Groups {
       if(validateConfig(candidate)&&!this.has(candidate.id))this.entries.set(candidate.id,{config:{...structuredClone(candidate),settings:normalizedSettings(candidate.settings)},motor:this.makeMotor(),message:"โหลดกลุ่มแล้ว • กดเริ่มเมื่อพร้อม",needsStart:true});
     }
   }
-  views():GroupView[]{return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));}
+  views():GroupView[]{return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,pauseRemaining:m.pauseRemaining,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));}
 }

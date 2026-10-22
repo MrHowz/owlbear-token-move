@@ -141,3 +141,19 @@ test("stationary groups cannot overlap active LINE groups and need an actual eff
   const f=fixture(),g=f.g;g.create("a",f.items(["one"]));g.setPath("a",[{x:0,y:0},{x:500,y:0}]);g.create("b",f.items(["one"]));g.update("b","idle",{...defaultSettings,movement:"stationary",effect:"shake"});
   await g.start("a",100,0);await assert.rejects(g.start("b",100,0),/Token ซ้ำ/);await g.stopAll();g.update("b","none",{...defaultSettings,movement:"stationary",effect:"none"});await assert.rejects(g.start("b",100,1000),/เลือกเอฟเฟกต์/);
 });
+
+
+test("wait settings persist and invalid waits are rejected without losing the route",()=>{
+ const groups=new Groups({read:async()=>[],commit:async()=>{},interact:async()=>{throw new Error("unused");}});
+ groups.create("wait");groups.setPath("wait",[{x:0,y:0},{x:100,y:0}]);
+ const settings={...groups.export()[0].settings,waypointPauses:[1,3]};groups.update("wait","พัก",settings);
+ const copy=new Groups({read:async()=>[],commit:async()=>{},interact:async()=>{throw new Error("unused");}});copy.hydrate(groups.export());assert.deepEqual(copy.export()[0].settings.waypointPauses,[1,3]);
+ for(const pauses of [[-1],[Infinity],[NaN],[3601]])assert.throws(()=>groups.update("wait","พัก",{...settings,waypointPauses:pauses}));
+ groups.setStart("wait",{x:50,y:0});assert.deepEqual(groups.export()[0].settings.waypointPauses,[1,3]);
+ groups.setPath("wait",[{x:0,y:0},{x:200,y:0}]);assert.equal(groups.export()[0].settings.waypointPauses,undefined);
+});
+
+test("stopping during the final wait resumes waiting rather than teleporting to route start",async()=>{
+ const f=fixture(),g=f.g;g.create("a",f.items(["one"]));g.setPath("a",[{x:0,y:0},{x:100,y:0}]);g.update("a","wait",{...defaultSettings,speed:1,mode:"once",waypointPauses:[0,5]});
+ await g.start("a",100,0);await g.tick(2000);await g.stop("a");await g.start("a",100,10000);await g.tick(11000);assert.equal(f.active.get("one")!.position.x,100);assert.equal(g.views()[0].pauseRemaining,3);await g.tick(14000);assert.equal(g.views()[0].running,false);
+});

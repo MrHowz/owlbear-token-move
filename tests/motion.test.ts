@@ -238,3 +238,36 @@ test("stationary effects keep phase through interaction renewal and checkpoint o
   await f.motor.tick(20033);near(f.live()[0].rotation,25+effectOffset(effect,20033,100).rotation);assert.equal(f.counts().interactions,2);assert.equal(f.motor.running,true);
   await f.motor.stop();assert.equal(f.items()[0].rotation,25);assert.deepEqual(f.items()[0].position,{x:0,y:0});
 });
+
+
+test("LINE waits at each waypoint then consumes remaining frame time without skipping corners",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:200,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypoints:[{x:100,y:0},{x:200,y:0}],waypointPauses:[0,2,1]});
+ await f.motor.tick(1000);assert.equal(f.motor.pauseRemaining,2);
+ await f.motor.tick(2500);assert.equal(f.live()[0].position.x,100);assert.equal(f.motor.pauseRemaining,.5);
+ await f.motor.tick(3500);assert.equal(f.live()[0].position.x,150);
+ await f.motor.tick(4500);assert.equal(f.live()[0].position.x,200);assert.equal(f.motor.running,true);assert.equal(f.motor.pauseRemaining,.5);
+ await f.motor.tick(5000);assert.equal(f.motor.running,false);assert.equal(f.motor.completed,true);
+});
+test("patrol pauses on outward and return visits including the starting cell",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:200,y:0},100,1,true,false,0,{flip:false,facing:"right",resume:false,waypoints:[{x:100,y:0},{x:200,y:0}],waypointPauses:[1,2,3]});
+ await f.motor.tick(8000);assert.equal(f.live()[0].position.x,100);assert.equal(f.motor.pauseRemaining,2);assert.equal(f.motor.direction,"return");
+ await f.motor.tick(12500);assert.equal(f.live()[0].position.x,50);assert.equal(f.motor.direction,"outbound");
+});
+test("manual stop during a timed wait resumes its remaining duration",async()=>{
+ const f=fixture();const options={flip:false,facing:"right" as const,resume:true,waypoints:[{x:100,y:0},{x:200,y:0}],waypointPauses:[0,4,0]};
+ await f.motor.start(f.initial,{x:200,y:0},100,1,false,false,0,options);await f.motor.tick(2000);await f.motor.stop();
+ await f.motor.start(f.initial,{x:200,y:0},100,1,false,false,10000,options);await f.motor.tick(12000);assert.equal(f.live()[0].position.x,100);assert.equal(f.motor.pauseRemaining,1);
+ await f.motor.tick(13500);assert.equal(f.live()[0].position.x,150);
+});
+test("long browser suspension skips complete patrol cycles including all dwell times",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:100,y:0},100,1,true,false,0,{flip:false,facing:"right",resume:false,waypointPauses:[2,3]});
+ await f.motor.tick(702500);assert.equal(f.live()[0].position.x,100);assert.equal(f.motor.pauseRemaining,1.5);
+});
+test("wiggle continues during waypoint waiting and stop restores its original pose",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:100,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypointPauses:[0,4],effect:{...noEffect,effect:"wiggle"}});
+ await f.motor.tick(1500);assert.equal(f.live()[0].position.x,100);assert.notEqual(f.live()[0].rotation,25);await f.motor.stop();assert.equal(f.items()[0].rotation,25);assert.equal(f.items()[0].position.x,100);
+});
+test("long waypoint waits renew live interactions and retain the remaining wait",async()=>{
+ const f=fixture();await f.motor.start(f.initial,{x:100,y:0},100,1,false,false,0,{flip:false,facing:"right",resume:false,waypointPauses:[0,60]});
+ await f.motor.tick(20000);await f.motor.waitForMaintenance();await f.motor.tick(40000);assert.equal(f.live()[0].position.x,100);assert.equal(f.motor.pauseRemaining,21);await f.motor.tick(61000);assert.equal(f.motor.running,false);
+});

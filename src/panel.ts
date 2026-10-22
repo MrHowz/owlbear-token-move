@@ -8,7 +8,7 @@ document.querySelector("#app")!.innerHTML=`
 <header class="topbar"><h1>Token Move <span>LINE · FX</span></h1><div class="global-controls"><button id="start-all" class="icon-button" title="เริ่มทุกกลุ่ม" aria-label="เริ่มทุกกลุ่ม">${icon("play")}</button><button id="stop-all" class="icon-button" title="หยุดทุกกลุ่ม" aria-label="หยุดทุกกลุ่ม">${icon("stop")}</button></div></header>
 <div id="demo-banner" hidden>ตัวอย่างหน้าตา · ใช้งานจริงผ่าน Owlbear</div>
 <div class="toolbar"><button id="create" class="add-button">${icon("add")}<span>เพิ่มกลุ่มจาก Token ที่เลือก</span></button><button id="help" class="icon-button help-button" title="วิธีใช้งาน" aria-label="วิธีใช้งาน" aria-expanded="false">${icon("help")}</button></div>
-<section id="help-panel" class="help-panel" hidden><strong>เลือก Token → เพิ่มกลุ่ม → เลือกการเคลื่อนที่ → กดเริ่ม</strong><p>เดิน LINE: คลิกช่องเริ่มและช่องถัดไป คลิกช่องล่าสุดซ้ำหรือ Enter เพื่อบันทึก</p><p>อยู่กับที่: เลือกสั่นหรือดุ๊กดิ๊กแล้วกด ▶ ได้เลย ไม่ต้องวาด LINE<br>สั่นขยับตำแหน่งเล็กน้อย · ดุ๊กดิ๊กหมุนซ้าย–ขวารอบองศาเดิม ใช้พร้อม LINE ได้</p><p>⋯ ปรับระยะสั่น องศาดุ๊กดิ๊ก และจังหวะ · เมื่อหยุดจะคืนองศาเดิม<br>Backspace ย้อนจุด · Esc ยกเลิก · หยุดกลุ่มก่อนแก้ค่า</p></section>
+<section id="help-panel" class="help-panel" hidden><strong>เลือก Token → เพิ่มกลุ่ม → เลือกการเคลื่อนที่ → กดเริ่ม</strong><p>เดิน LINE: คลิกช่องเริ่มและช่องถัดไป คลิกช่องล่าสุดซ้ำหรือ Enter เพื่อบันทึก</p><p>อยู่กับที่: เลือกสั่นหรือดุ๊กดิ๊กแล้วกด ▶ ได้เลย ไม่ต้องวาด LINE<br>สั่นขยับตำแหน่งเล็กน้อย · ดุ๊กดิ๊กหมุนซ้าย–ขวารอบองศาเดิม ใช้พร้อม LINE ได้</p><p>⋯ ตั้งจุดพักระหว่างทาง หรือปรับระยะสั่น องศาดุ๊กดิ๊ก และจังหวะ · เมื่อหยุดจะคืนองศาเดิม<br>Backspace ย้อนจุด · Esc ยกเลิก · หยุดกลุ่มก่อนแก้ค่า</p></section>
 <div class="list-heading"><span id="group-count">0 กลุ่ม</span><span id="running-count"></span></div>
 <div id="column-headings" class="column-headings" aria-hidden="true"><span>LINE</span><span>ช่อง/วิ</span><span>วนกลับ</span><span>Flip</span><span>เดิน</span><span>ตั้งค่า</span></div>
 <section id="group-list" aria-label="กลุ่มการเดิน"></section>
@@ -57,6 +57,7 @@ async function send(command:Command):Promise<boolean>{
 async function saveDraft(id:string){
   const draft=drafts.get(id);if(!draft)return true;
   const row=rows.get(id);if(row&&Object.values(row.fields).some(field=>!field.disabled&&!field.reportValidity()))return false;
+  if(row&&Array.from(row.points.querySelectorAll<HTMLInputElement>("input")).some(f=>!f.disabled&&!f.reportValidity()))return false;
   const ok=await send({type:"update",id,name:draft.name.trim()||"กลุ่มไม่มีชื่อ",settings:{...draft.settings}});
   if(ok&&drafts.get(id)===draft)drafts.delete(id);render();return ok;
 }
@@ -91,7 +92,7 @@ function makeRow(id:string):Row{
   <section class="row-details" hidden><label class="detail-name">ชื่อกลุ่ม<input data-field="name" maxlength="80"></label><div class="detail-actions"><button data-action="pickStart" class="secondary">${icon("pin")}เลือกจุดเริ่ม</button><button data-action="showRoute" class="secondary">${icon("eye")}<span>แสดงเส้นทาง</span></button></div>
   <label class="detail-toggle"><span>ค่อย ๆ ออกตัวและหยุด</span><input data-field="smooth" type="checkbox"></label><label class="detail-facing">ภาพต้นฉบับหัน<select data-field="facing"><option value="right">ขวา →</option><option value="left">ซ้าย ←</option></select></label>
   <div class="effect-options"><label data-option="shakeDistance">ระยะสั่น ± (ช่อง)<input data-field="shakeDistance" type="number" min="0.005" max="0.25" step="0.005"></label><label data-option="wiggleAngle">หมุนซ้าย–ขวา ± (องศา)<input data-field="wiggleAngle" type="number" min="1" max="30" step="1"></label><label data-option="effectSpeed">จังหวะเอฟเฟกต์ (เท่า)<input data-field="effectSpeed" type="number" min="0.25" max="3" step="0.25"></label><p>กดหยุดเพื่อคืนท่าเดิม • ระหว่างเดินจะหยุดที่ตำแหน่งล่าสุดบน LINE</p></div>
-  <details class="point-details"><summary>ดูจุดเดินและพิกัด</summary><ol></ol></details><div class="member-actions"><button data-action="capture" class="quiet">เปลี่ยน Token</button><button data-action="reset" class="quiet">กลับจุดเริ่ม</button><button data-action="remove" class="quiet danger">ลบกลุ่ม</button></div></section>`;
+  <details class="point-details"><summary>จุดพักระหว่างทาง</summary><p>กำหนดวินาทีที่พักเมื่อถึงแต่ละจุด · 0 = ผ่านเลย<br>วนไปกลับจะพักทั้งสองขา · วาด LINE ใหม่จะล้างเวลาพัก</p><ol></ol></details><div class="member-actions"><button data-action="capture" class="quiet">เปลี่ยน Token</button><button data-action="reset" class="quiet">กลับจุดเริ่ม</button><button data-action="remove" class="quiet danger">ลบกลุ่ม</button></div></section>`;
   const q=<T extends Element=HTMLElement>(selector:string)=>element.querySelector(selector) as T;
   const buttons={} as Record<Action,HTMLButtonElement>;
   for(const b of Array.from(element.querySelectorAll<HTMLButtonElement>("[data-action]"))){
@@ -131,7 +132,7 @@ function render(){
     row.element.classList.toggle("selected",state.selectedId===g.id);row.element.classList.toggle("running",g.running);row.element.classList.toggle("busy",!!busy);row.element.classList.toggle("dirty",drafts.has(g.id));
     row.element.setAttribute("aria-busy",String(!!busy));
     text(row.name,d.name||g.name);text(row.meta,`${g.count} Token · ${fixed?"อยู่กับที่":g.route?`${g.route.length} จุด`:"ยังไม่มี LINE"}`);
-    text(row.phase,g.running?(fixed?(s.effect==="shake"?"กำลังสั่น":"ดุ๊กดิ๊ก"):`${g.direction==="return"?"←":"→"} ${Math.round(g.progress*100)}%`):ready?(!fixed&&g.progress>0&&g.progress<1?"พัก":!fixed&&g.settings.mode==="once"&&g.progress>=1?"จบรอบ":"พร้อม"):"วาด LINE");
+    text(row.phase,g.running?(g.pauseRemaining?`พัก ${Math.ceil(g.pauseRemaining)} วิ`:fixed?(s.effect==="shake"?"กำลังสั่น":"ดุ๊กดิ๊ก"):`${g.direction==="return"?"←":"→"} ${Math.round(g.progress*100)}%`):ready?(!fixed&&g.progress>0&&g.progress<1?"พัก":!fixed&&g.settings.mode==="once"&&g.progress>=1?"จบรอบ":"พร้อม"):"วาด LINE");
     row.bar.style.width=`${g.running?Math.max(0,Math.min(100,g.progress*100)):g.progress===1?100:0}%`;
     row.details.hidden=!expanded;row.buttons.more.setAttribute("aria-expanded",String(expanded));
     row.element.querySelector(".row-name")!.setAttribute("aria-expanded",String(expanded));
@@ -162,7 +163,17 @@ function render(){
     const visible=state.selectedId===g.id&&state.routeVisible!==false;
     text(row.buttons.showRoute.querySelector("span")!,visible?"ซ่อนเส้นทาง":"แสดงเส้นทาง");row.buttons.showRoute.setAttribute("aria-pressed",String(visible));
     row.warning.hidden=ready||!!state.pickingId; text(row.warning,!g.count?"เลือก Token แล้วกดเปลี่ยน Token ใน ⋯":fixed?"เลือกเอฟเฟกต์สั่นหรือดุ๊กดิ๊ก":"กดปุ่ม LINE เพื่อเลือกช่องเริ่มและทางเดิน");
-    if(expanded){const key=JSON.stringify(g.route);if(key!==row.pointsKey){row.pointsKey=key;row.points.replaceChildren(...(g.route??[]).map((p,i)=>{const li=document.createElement("li");li.textContent=`${Math.round(p.x)}, ${Math.round(p.y)}${i===0?" · เริ่ม":i===g.route!.length-1?" · สุดท้าย":""}`;return li;}));}}
+    row.pointToggle.hidden=fixed||!hasRoute;
+    if(expanded){const key=JSON.stringify(g.route);if(key!==row.pointsKey){row.pointsKey=key;row.points.replaceChildren(...(g.route??[]).map((p,i)=>{
+      const id=g.id;const li=document.createElement("li"),label=document.createElement("label"),name=document.createElement("span"),input=document.createElement("input"),unit=document.createElement("span");
+      name.textContent=`จุด ${i+1}${i===0?" · เริ่ม (พักตอนกลับ)":i===g.route!.length-1?" · สุดท้าย":""}`;name.title=`พิกัด ${Math.round(p.x)}, ${Math.round(p.y)}`;
+      input.type="number";input.min="0";input.max="3600";input.step="0.1";input.inputMode="decimal";input.dataset.pause=String(i);unit.textContent="วินาที";
+      input.addEventListener("input",()=>{const g=group(id);if(!g||g.running)return;const pauses=[...(editing(g).settings.waypointPauses??[])];while(pauses.length<(g.route?.length??0))pauses.push(0);pauses[i]=input.valueAsNumber;changed(id,{},{waypointPauses:pauses});});
+      input.addEventListener("change",()=>{if(input.reportValidity())saveLater(id);});input.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();if(input.reportValidity())saveLater(id);}});
+      label.append(name,input,unit);li.append(label);return li;
+    }));}
+    for(const input of Array.from(row.points.querySelectorAll<HTMLInputElement>("input[data-pause]"))){input.disabled=locked;input.setAttribute("aria-label",`เวลาพักจุด ${Number(input.dataset.pause)+1} (วินาที) — ${d.name}`);if(document.activeElement!==input)input.value=String(s.waypointPauses?.[Number(input.dataset.pause)]??0);}}
+
   }
   const running=state.groups.filter(g=>g.running).length;
   text(el("group-count"),`${state.groups.length} กลุ่ม`);text(el("running-count"),running?`${running} กำลังทำงาน`:"เลือกโหมดแล้วกด ▶");
