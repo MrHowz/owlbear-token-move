@@ -4,6 +4,7 @@ import type {Item} from "@owlbear-rodeo/sdk";
 import type {MotionAdapter} from "../src/motion";
 import {LiveEffect,effectFrame} from "../src/live-effect";
 import {noEffect} from "../src/effects";
+import {Groups} from "../src/groups";
 function fixture(){
  const scene=new Map<string,Item>([["a",{id:"a",type:"IMAGE",name:"a",position:{x:100,y:200},rotation:25,scale:{x:1,y:1},locked:false} as Item]]);
  const streams=new Map<number,Item[]>();let opens=0,frames=0,reads=0,writes=0;let gate:Promise<void>|undefined;
@@ -40,4 +41,21 @@ test("cancelling a pending initial stream cannot revive the effect or leak an in
 });
 test("a locked root is rejected before a live effect opens",async()=>{
  const f=fixture();f.scene.get("a")!.locked=true;await assert.rejects(f.start(),/ล็อก/);assert.equal(f.counts().opens,0);assert.equal(f.motor.running,false);
+});
+test("selected tokens never open an effect interaction; deselection starts at the latest dragged pose",async()=>{
+ const f=fixture();f.motor.setManualPaused(true,0);await f.start();assert.equal(f.motor.running,true);assert.equal(f.motor.pausedForManual,true);assert.equal(f.counts().opens,0);
+ await f.motor.tick(10000);assert.equal(f.motor.progress,0);f.scene.get("a")!.position={x:432,y:876};f.motor.setManualPaused(false,10000);await f.motor.waitForMaintenance();await f.motor.tick(10000+1000/6);assert.equal(f.motor.pausedForManual,false);assert.deepEqual(f.view().position,{x:432,y:876});assert.ok(Math.abs(f.view().rotation-33)<1e-6);await f.motor.stop();
+});
+test("native editing removes all effect streams and freezes Once until selection is released",async()=>{
+ const f=fixture();await f.start("wiggle",false);await f.motor.tick(1000/6);f.motor.setManualPaused(true,200);assert.equal(f.streams.size,0);
+ f.scene.get("a")!.rotation=90;f.scene.get("a")!.position={x:777,y:888};const frames=f.counts().frames;await f.motor.tick(5000);assert.equal(f.motor.running,true);assert.equal(f.counts().frames,frames);
+ f.motor.setManualPaused(false,5200);await f.motor.waitForMaintenance();await f.motor.tick(5500);assert.equal(f.view().rotation,82);assert.deepEqual(f.view().position,{x:777,y:888});await f.motor.tick(5700);assert.equal(f.motor.running,false);assert.equal(f.view().rotation,90);
+});
+test("a new selection cancels a slow resume without leaking a competing interaction",async()=>{
+ const f=fixture();await f.start();f.motor.setManualPaused(true,100);let release!:()=>void;f.block(new Promise<void>(r=>release=r));f.motor.setManualPaused(false,200);const resumed=f.motor.waitForMaintenance();await Promise.resolve();f.motor.setManualPaused(true,210);release();await resumed;await f.motor.tick(500);assert.equal(f.streams.size,0);assert.equal(f.motor.running,true);assert.equal(f.motor.pausedForManual,true);await f.motor.stop();
+});
+test("selecting a nested attachment pauses only its own free effect group",async()=>{
+ const f=fixture();const child={...structuredClone(f.scene.get("a")!),id:"child",attachedTo:"a"};const nested={...structuredClone(child),id:"nested",attachedTo:"child"};f.scene.set(child.id,child);f.scene.set(nested.id,nested);
+ const groups=new Groups(f.adapter);groups.create("group",[f.scene.get("a")!]);groups.update("group","group",{speed:2,mode:"patrol",smooth:false,flip:false,facing:"right",movement:"stationary",effect:"wiggle"});groups.manualSelection(["nested"],f.scene,0);await groups.start("group",100,0);assert.equal(groups.views()[0].manualPaused,true);assert.equal(f.counts().opens,0);
+ groups.manualSelection(["unrelated"],f.scene,1000);await groups.tick(1001);await Promise.resolve();await Promise.resolve();assert.equal(groups.views()[0].manualPaused,false);await groups.stopAll();
 });

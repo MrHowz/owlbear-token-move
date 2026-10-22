@@ -16,6 +16,7 @@ let pickNotice:string|undefined;
 let previewPending=false,previewRunning=false;
 let committedScene=new Map<string,Item>();
 let committedRevision=0;
+let manualSelection:string[]=[];
 const publisher=new OrderedPublisher<StatePacket[]>(async packets=>{
   for(const packet of packets)await OBR.broadcast.sendMessage(STATE,packet,{destination:"LOCAL"});
 });
@@ -170,10 +171,12 @@ async function loadScene(ready:boolean) {
   await groups.clear();
   state={...initialState,routeVisible:true,ready,gm:await OBR.player.getRole()==="GM",message:ready?"เลือก Token แล้วเพิ่มกลุ่มเพื่อสร้าง LINE":"กรุณาเปิด Scene ก่อน"};
   if(ready&&state.gm) {
+    const scene=await OBR.scene.items.getItems();committedScene=new Map(scene.map(i=>[i.id,i]));++committedRevision;
     state.gridDpi=await OBR.scene.grid.getDpi();
     const metadata=await OBR.scene.getMetadata();
     const saved=metadata[storageKey] as {version?:number;gridVersion?:number;groups?:unknown}|undefined;
     if(saved?.version===2||saved?.version===3)groups.hydrate(saved.groups,saved.version);
+    groups.manualSelection(manualSelection,committedScene,performance.now());
     if(saved?.version===2&&saved.gridVersion!==1)for(const g of groups.views())if(g.route){
       const points:Point[]=[];for(const p of g.route)points.push(await cell(p));
       try{groups.setPath(g.id,points);}catch{groups.clearRoute(g.id);}
@@ -291,7 +294,11 @@ OBR.onReady(async()=>{
       void groups.stopAll(false).catch(console.error);
       enqueue(()=>loadScene(ready),nextEpoch);
     });
+    let selectionRevision=0;
     OBR.player.onChange(player=>{
+      ++selectionRevision;manualSelection=player.selection??[];
+      groups.manualSelection(manualSelection,committedScene,performance.now());
+      if(groups.running)void publish(false).catch(console.error);
       const gm=player.role==="GM";
       if(gm===state.gm)return;
       state.gm=gm;
@@ -304,7 +311,7 @@ OBR.onReady(async()=>{
       });
     });
     OBR.scene.grid.onChange(grid=>enqueue(async()=>{state.gridDpi=grid.dpi;await publish();}));
-    OBR.scene.items.onChange(items=>{++committedRevision;committedScene=new Map(items.map(i=>[i.id,i]));if(groups.running) enqueue(async()=>{await groups.checkItems(items);if(!groups.running)void publish(false).catch(console.error);});});
+    OBR.scene.items.onChange(items=>{++committedRevision;committedScene=new Map(items.map(i=>[i.id,i]));groups.manualSelection(manualSelection,committedScene,performance.now());if(groups.running) enqueue(async()=>{await groups.checkItems(items);if(!groups.running)void publish(false).catch(console.error);});});
     let lastPublish=0;
     setInterval(()=>{
       if(!groups.running||!state.ready||!state.gm)return;
@@ -323,6 +330,8 @@ OBR.onReady(async()=>{
       if(!groups.running)enqueue(async()=>{void publish(false).catch(console.error);});
     },1000/60);
     console.info(`Token Move ${VERSION}`);
+    const selectionAtRequest=selectionRevision,selected=await OBR.player.getSelection();
+    if(selectionAtRequest===selectionRevision)manualSelection=selected??[];
     await loadScene(await OBR.scene.isReady());
   } catch(error){console.error(error);state.message="เริ่มระบบไม่สำเร็จ กรุณารีโหลดห้อง";await publish().catch(console.error);}
 });

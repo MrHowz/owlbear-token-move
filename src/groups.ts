@@ -7,12 +7,22 @@ import {defaultSettings, normalizedSettings, finitePoint, validSettings, validat
 interface Runtime {config:GroupConfig;motor:Motion|FreeEffect|LiveEffect;message:string;needsStart:boolean;settling?:Promise<void>}
 export class Groups {
   private entries=new Map<string,Runtime>();
+  private selection=new Set<string>();private scene=new Map<string,Item>();
   constructor(private adapter:MotionAdapter,private clock?:()=>number){}
   private makeMotor(movement?:string):Motion|FreeEffect|LiveEffect{return movement==="stationary"?(this.adapter.freeInteract?new LiveEffect(this.adapter,this.clock):new FreeEffect(this.adapter,this.clock)):new Motion(this.adapter,this.clock);}
   private get(id:string){const e=this.entries.get(id);if(!e)throw new Error("ไม่พบกลุ่มนี้ กรุณาเลือกกลุ่มใหม่");return e;}
   has(id:string){return this.entries.has(id);}
   get running(){return [...this.entries.values()].some(e=>e.motor.running);}
   get size(){return this.entries.size;}
+  private manuallySelected(e:Runtime){
+    const roots=new Set(e.config.anchors.map(i=>i.id));
+    for(const id of this.selection){let current:string|undefined=id;const seen=new Set<string>();while(current&&!seen.has(current)){if(roots.has(current))return true;seen.add(current);current=this.scene.get(current)?.attachedTo;}}
+    return false;
+  }
+  manualSelection(ids:string[],scene:Map<string,Item>,now:number){
+    this.selection=new Set(ids);this.scene=scene;
+    for(const e of this.entries.values())if(e.motor instanceof LiveEffect)e.motor.setManualPaused(this.manuallySelected(e),now);
+  }
   create(id:string,items:Item[]=[]){
     if(!id||this.has(id))throw new Error("รหัสกลุ่มซ้ำ");
     const config:GroupConfig={id,name:`กลุ่ม ${this.size+1}`,anchors:[],settings:{...defaultSettings}};
@@ -79,6 +89,7 @@ export class Groups {
     if(s.movement==="stationary"){
       if(s.effect==="none")throw new Error("เลือกเอฟเฟกต์สั่นหรือดุ๊กดิ๊กสำหรับโหมดเอฟเฟกต์อิสระ");
       if(!e.config.anchors.length)throw new Error("เลือก Token ให้กลุ่มก่อน");
+      if(e.motor instanceof LiveEffect)e.motor.setManualPaused(this.manuallySelected(e),now);
       await e.motor.start(e.config.anchors,e.config.anchors[0].position,dpi,s.speed,s.mode==="patrol",false,now,{flip:false,facing:s.facing,resume:false,stationary:true,effect:s});
       e.message=s.effect==="shake"?"กำลังสั่น • ลากย้ายได้":"กำลังดุ๊กดิ๊ก • ลากย้ายได้";return;
     }
@@ -142,5 +153,5 @@ export class Groups {
       if(validateConfig(candidate)&&!this.has(candidate.id))this.entries.set(candidate.id,{config:{...structuredClone(candidate),settings:normalizedSettings(candidate.settings)},motor:this.makeMotor(candidate.settings.movement),message:"โหลดกลุ่มแล้ว • กดเริ่มเมื่อพร้อม",needsStart:true});
     }
   }
-  views():GroupView[]{return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,pauseRemaining:m.pauseRemaining,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message}));}
+  views():GroupView[]{return [...this.entries.values()].map(({config:c,motor:m,message})=>({id:c.id,name:c.name,count:c.anchors.length,names:c.anchors.slice(0,3).map(a=>a.name),route:c.route?structuredClone(c.route):undefined,waypointIndex:m.waypointIndex,pauseRemaining:m.pauseRemaining,manualPaused:m instanceof LiveEffect&&m.pausedForManual,settings:{...c.settings},running:m.running,progress:m.progress,direction:m.direction,message:m instanceof LiveEffect&&m.pausedForManual?"พักเอฟเฟกต์ขณะเลือก Token • คลิกพื้นที่ว่างเพื่อเล่นต่อ":message}));}
 }

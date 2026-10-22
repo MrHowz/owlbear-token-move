@@ -18,6 +18,8 @@ export class LiveEffect {
  running=false;progress=0;readonly direction="outbound" as const;readonly waypointIndex=1;readonly pauseRemaining=0;
  private generation=0;private stream?:Stream;private replacement?:Stream;private maintenance?:Promise<void>;private error?:unknown;
  private ids:string[]=[];private effect:EffectOptions={...noEffect};private dpi=100;private started=0;private renewed=0;private loop=true;private duration=1000;
+ private manualSelected=false;private pausedAt?:number;private resuming=false;
+ get pausedForManual(){return this.running&&(this.manualSelected||this.resuming);}
  get revision(){return this.generation;}
  get completed(){return !this.running&&this.progress>=1;}
  constructor(private adapter:MotionAdapter,private clock?:()=>number){}
@@ -32,9 +34,36 @@ export class LiveEffect {
  async start(originals:Anchor[],_b:Point,dpi:number,_speed:number,loop:boolean,_smooth:boolean,now:number,options:Parameters<Motion["start"]>[7]){
   await this.stop();const generation=++this.generation;
   this.ids=originals.map(i=>i.id);this.effect={...(options?.effect??noEffect)};this.dpi=dpi;this.loop=loop;this.duration=effectCycleMs(this.effect);this.progress=0;this.error=undefined;
-  const stream=await this.open(generation);
-  if(!stream||this.generation!==generation){stream?.[1]();throw new Error("ยกเลิกการเริ่มเอฟเฟกต์แล้ว");}
-  this.stream=stream;this.started=this.clock?.()??now;this.renewed=this.started;this.running=true;
+  // Selected items belong to the native tools. Do not even open an interaction
+  // until selection is released; a competing interaction can offset the mouse.
+  if(this.manualSelected){
+   const fresh=await this.adapter.read(this.ids);
+   if(this.generation!==generation)throw new Error("ยกเลิกการเริ่มเอฟเฟกต์แล้ว");
+   if(fresh.length!==this.ids.length||fresh.some(i=>i.locked||i.attachedTo))throw new Error("Token หลักถูกลบ ล็อก หรือเปลี่ยนการ attach กรุณาเลือกใหม่");
+  }
+  if(!this.manualSelected){
+   const stream=await this.open(generation);
+   if(!stream||this.generation!==generation){stream?.[1]();throw new Error("ยกเลิกการเริ่มเอฟเฟกต์แล้ว");}
+   if(this.manualSelected)stream[1]();else this.stream=stream;
+  }
+  this.started=this.clock?.()??now;this.renewed=this.started;this.running=true;
+  this.pausedAt=this.manualSelected?this.started:undefined;
+ }
+ setManualPaused(selected:boolean,now:number){
+  if(selected===this.manualSelected)return;this.manualSelected=selected;
+  if(!this.running)return;
+  const generation=++this.generation;
+  this.stream?.[1]();this.stream=undefined;this.replacement?.[1]();this.replacement=undefined;this.maintenance=undefined;
+  if(selected){this.pausedAt??=now;this.resuming=false;return;}
+  this.resuming=true;
+  const task=this.open(generation).then(stream=>{
+   if(!stream)return;
+   if(this.generation!==generation){stream[1]();return;}
+   const resumed=this.clock?.()??now;
+   this.started+=Math.max(0,resumed-(this.pausedAt??now));this.pausedAt=undefined;
+   this.renewed=resumed;this.stream=stream;this.resuming=false;
+  }).catch(error=>{if(this.generation===generation){this.error=error;this.resuming=false;}});
+  this.maintenance=task;void task.finally(()=>{if(this.maintenance===task)this.maintenance=undefined;});
  }
  private renew(){
   const generation=this.generation;
@@ -44,6 +73,7 @@ export class LiveEffect {
  async tick(now:number){
   if(!this.running)return;
   if(this.error){const error=this.error;this.error=undefined;throw error;}
+  if(this.pausedForManual)return;
   if(!this.loop&&now-this.started>=this.duration){this.progress=1;await this.stop();return;}
   if(this.replacement){this.stream?.[1]();this.stream=this.replacement;this.replacement=undefined;this.renewed=now;}
   if(now-this.renewed>=20_000&&!this.maintenance&&!this.replacement)this.renew();
@@ -55,7 +85,7 @@ export class LiveEffect {
   }});
  }
  async stop(_commit=true){
-  this.running=false;++this.generation;
+  this.running=false;++this.generation;this.resuming=false;this.pausedAt=undefined;
   // Removing the transient interaction reveals the latest committed pose. No cleanup
   // RPC can race a drag, fail at the deadline, or keep the Play button waiting.
   this.stream?.[1]();this.stream=undefined;this.replacement?.[1]();this.replacement=undefined;
