@@ -3,7 +3,7 @@ export const COMMAND = `${ID}/command`;
 export const STATE = `${ID}/state`;
 export type Point = {x: number; y: number};
 export type Mode = "once" | "patrol";
-export const VERSION = "2.8.1";
+export const VERSION = "2.8.2";
 export type Facing = "right" | "left";
 export type Movement = "line" | "stationary";
 export type PauseEffect = "inherit" | "none" | "wiggle" | "shake";
@@ -52,3 +52,4 @@ export function durationMs(a: Point, b: Point, dpi: number, speed: number) {
   if (!Number.isFinite(dpi) || dpi <= 0) throw new Error("ไม่สามารถอ่านขนาดกริดได้");
   return Math.max(100, Math.hypot(b.x - a.x, b.y - a.y) / dpi / speed * 1000);
 }
+

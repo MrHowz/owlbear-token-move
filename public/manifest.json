@@ -1,6 +1,6 @@
 {
   "name": "Token Move • LINE & FX",
-  "version": "2.8.1",
+  "version": "2.8.2",
   "manifest_version": 1,
   "description": "Animate token LINE routes, shake or wiggle in place or while walking. GM controls.",
   "icon": "/icon.svg",
@@ -13,3 +13,4 @@
     "height": 700
   }
 }
+

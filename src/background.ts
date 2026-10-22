@@ -1,6 +1,7 @@
 import OBR, {buildCurve, buildText, type Item} from "@owlbear-rodeo/sdk";
 import {selectionRoots,followAttachments} from "./attachments";
 import {Groups} from "./groups";
+import {effectFrame} from "./live-effect";
 import {OrderedPublisher} from "./publisher";
 import {COMMAND, STATE, ID, VERSION, initialState, statePackets, type Command, type CommandMessage, type State, type Point, type StatePacket} from "./shared";
 
@@ -13,10 +14,26 @@ let routeItems:string[]=[];
 let routeSignature="";
 let pickNotice:string|undefined;
 let previewPending=false,previewRunning=false;
+let committedScene=new Map<string,Item>();
+let committedRevision=0;
 const publisher=new OrderedPublisher<StatePacket[]>(async packets=>{
   for(const packet of packets)await OBR.broadcast.sendMessage(STATE,packet,{destination:"LOCAL"});
 });
 const groups = new Groups({
+  freeInteract:async roots=>{
+    const requestedEpoch=epoch,sceneRevision=committedRevision,ids=new Set(roots.map(i=>i.id));
+    const all=await OBR.scene.items.getItemAttachments([...ids]);
+    if(requestedEpoch!==epoch)throw new Error("Scene เปลี่ยนแล้ว");
+    // Refresh the durable baseline once. Animation frames must never fetch or write
+    // scene data: updateItems drives hierarchy/history and is unsuitable at 60 fps.
+    for(const item of all)if(sceneRevision===committedRevision||!committedScene.has(item.id))committedScene.set(item.id,item);
+    const live=await OBR.interaction.startItemInteraction(all.map(i=>committedScene.get(i.id)??i));
+    if(requestedEpoch!==epoch){live[1]();throw new Error("Scene เปลี่ยนแล้ว");}
+    return [(recipe:(items:Item[])=>void)=>{
+      const next=live[0](draft=>effectFrame(draft,committedScene,roots.map(i=>i.id),recipe));
+      return roots.map(root=>next.find(i=>i.id===root.id)!);
+    },live[1]];
+  },
   read: async ids => {
     const requestedEpoch=epoch; const items=await OBR.scene.items.getItems(ids);
     if (requestedEpoch!==epoch) throw new Error("Scene เปลี่ยนแล้ว กรุณาลองใหม่");
@@ -287,7 +304,7 @@ OBR.onReady(async()=>{
       });
     });
     OBR.scene.grid.onChange(grid=>enqueue(async()=>{state.gridDpi=grid.dpi;await publish();}));
-    OBR.scene.items.onChange(items=>{if(groups.running) enqueue(async()=>{await groups.checkItems(items);});});
+    OBR.scene.items.onChange(items=>{++committedRevision;committedScene=new Map(items.map(i=>[i.id,i]));if(groups.running) enqueue(async()=>{await groups.checkItems(items);if(!groups.running)void publish(false).catch(console.error);});});
     let lastPublish=0;
     setInterval(()=>{
       if(!groups.running||!state.ready||!state.gm)return;

@@ -1,13 +1,14 @@
 import type {Item} from "@owlbear-rodeo/sdk";
 import {FreeEffect} from "./free-effect";
+import {LiveEffect} from "./live-effect";
 import {Motion, type MotionAdapter} from "./motion";
 import {defaultSettings, normalizedSettings, finitePoint, validSettings, validateConfig, type Anchor, type GroupConfig, type GroupView, type Point, type Settings} from "./shared";
 
-interface Runtime {config:GroupConfig;motor:Motion|FreeEffect;message:string;needsStart:boolean;settling?:Promise<void>}
+interface Runtime {config:GroupConfig;motor:Motion|FreeEffect|LiveEffect;message:string;needsStart:boolean;settling?:Promise<void>}
 export class Groups {
   private entries=new Map<string,Runtime>();
   constructor(private adapter:MotionAdapter,private clock?:()=>number){}
-  private makeMotor(movement?:string):Motion|FreeEffect{return movement==="stationary"?new FreeEffect(this.adapter,this.clock):new Motion(this.adapter,this.clock);}
+  private makeMotor(movement?:string):Motion|FreeEffect|LiveEffect{return movement==="stationary"?(this.adapter.freeInteract?new LiveEffect(this.adapter,this.clock):new FreeEffect(this.adapter,this.clock)):new Motion(this.adapter,this.clock);}
   private get(id:string){const e=this.entries.get(id);if(!e)throw new Error("ไม่พบกลุ่มนี้ กรุณาเลือกกลุ่มใหม่");return e;}
   has(id:string){return this.entries.has(id);}
   get running(){return [...this.entries.values()].some(e=>e.motor.running);}

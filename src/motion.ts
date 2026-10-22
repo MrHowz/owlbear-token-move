@@ -6,6 +6,7 @@ type Interaction = [(recipe: (draft: Item[]) => void) => Item[], () => void];
 export interface MotionAdapter {
   read(ids: string[]): Promise<Item[]>;
   interact(items: Item[]): Promise<Interaction>;
+  freeInteract?(items: Item[]): Promise<Interaction>;
   commit(items: Item[]): Promise<void>;
   edit?(ids:string[],recipe:(items:Item[])=>void):Promise<void>;
 }
